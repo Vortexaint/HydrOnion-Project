@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard Gabungan Hidroponik — Responsive</title>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* Simple responsive layout (mobile-first) */
+    :root{--card-bg:#fff;--muted:#6b7280;--accent:#2563eb}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;background:#f3f4f6;color:#111}
+    .container{max-width:1100px;margin:16px auto;padding:12px}
+    .header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    .title{font-size:1.125rem;font-weight:700}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr)}}
+    .card{background:var(--card-bg);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    .metric-label{color:var(--muted);font-size:0.85rem;margin:0}
+    .metric-value{font-size:1.6rem;font-weight:700;margin:6px 0}
+    /* controls & chart area */
+    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{padding:8px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+    .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .panel{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+    @media(min-width:900px){.panel{grid-template-columns:1fr 420px}}
+    .small-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+    .label-small{color:var(--muted);font-size:0.9rem}
+    table{width:100%;border-collapse:collapse}
+    td,th{padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:0.95rem}
+    .k-v{font-weight:600}
+  /* Prevent canvas from growing indefinitely and ensure consistent heights */
+  canvas{display:block;max-width:100%;height:100% !important}
+  /* Chart wrapper: parent defines height, canvas will fill it */
+  .chart-area{height:220px}
+  .small-chart{height:140px}
+  /* Slight min-height for left card so main chart has room on narrow screens */
+  .panel > .card {min-height:220px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="title">Dashboard Hidroponik — Gabungan (Adaptive)</div>
+      <div style="font-size:0.9rem;color:var(--muted)">Terakhir: <span id="lastUpdated">-</span></div>
+    </div>
+
+    <!-- top metrics -->
+    <div class="grid" id="metrics">
+      <div class="card">
+        <p class="metric-label">TDS (EC / Nutrisi)</p>
+        <div class="metric-value" id="tds">--</div>
+      </div>
+      <div class="card">
+        <p class="metric-label">Suhu Air</p>
+        <div class="metric-value" id="suhu_air">-- °C</div>
+      </div>
+      <div class="card">
+        <p class="metric-label">Suhu Udara</p>
+        <div class="metric-value" id="suhu">-- °C</div>
+      </div>
+      <div class="card">
+        <p class="metric-label">Kelembapan</p>
+        <div class="metric-value" id="kelembapan">-- %</div>
+      </div>
+    </div>
+
+    <!-- signal / status / extras -->
+    <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+      <div class="card" style="flex:1;min-width:200px">
+        <div class="small-row">
+          <div>
+            <div class="label-small">Sinyal</div>
+            <div style="font-weight:700" id="signal">--</div>
+          </div>
+          <div>
+            <div class="label-small">Status</div>
+            <div style="font-weight:700" id="status">--</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="min-width:240px">
+        <div class="label-small">Informasi Perangkat</div>
+        <table>
+          <tbody>
+            <tr><td class="k-v">Device ID</td><td id="device_id">-</td></tr>
+            <tr><td class="k-v">Record ID</td><td id="id">-</td></tr>
+            <tr><td class="k-v">Timestamp</td><td id="timestamp">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- grafik + controls -->
+    <div class="panel">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <div class="controls" role="tablist" aria-label="Rentang waktu">
+            <button class="btn active" data-range="all">All Time</button>
+            <button class="btn" data-range="30">Last 30 days</button>
+            <button class="btn" data-range="7">Last 7 days</button>
+            <button class="btn" data-range="today">Today</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label style="font-size:0.9rem;color:var(--muted)">Y-axis:</label>
+            <select id="yAxisSelect" class="btn" style="padding:6px 10px">
+              <option value="auto">Auto</option>
+              <option value="0-100">0 - 100</option>
+              <option value="0-50">0 - 50</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="chart-area">
+          <canvas id="mainChart" height="220" style="width:100%"></canvas>
+        </div>
+      </div>
+
+      <!-- right column: three small charts -->
+      <div>
+        <div class="card" style="margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:8px">Suhu (ringkasan)</div>
+          <div class="small-chart"><canvas id="chartTemp" height="140"></canvas></div>
+        </div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:8px">Suhu Air (ringkasan)</div>
+          <div class="small-chart"><canvas id="chartWaterTemp" height="140"></canvas></div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:8px">Kelembapan (ringkasan)</div>
+          <div class="small-chart"><canvas id="chartHum" height="140"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- raw table (history preview) -->
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:700;margin-bottom:8px">Preview Data (recent)</div>
+      <table id="historyTable">
+        <thead>
+          <tr><th>ts</th><th>tds</th><th>suhu_air</th><th>suhu</th><th>kelembapan</th><th>signal</th><th>status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+/*
+  NOTE:
+  - Sesuaikan endpoint API di bawah dengan API kamu.
+  - Contoh file dashboard kamu memakai `?action=fetch` untuk latest dan `dashboard/loadDataGrafik` untuk grafik. 
+    Jika mau, ganti `API_LATEST` dan `API_HISTORY` ke endpoint yang sesuai. (Referensi: file-dashboard milikmu). :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
+*/
+
+const API_LATEST = '?action=fetch';            // contoh: ?action=fetch
+const API_HISTORY = '?action=history&range=';  // contoh: ?action=history&range=7  (server harus mengembalikan JSON list)
+
+/* Chart instances */
+let mainChart, chartTemp, chartWaterTemp, chartHum;
+
+/* util untuk render angka */
+function safe(v, suffix=''){ return (v===null || v===undefined) ? '--' : (v + suffix); }
+
+async function fetchLatest(){
+  try{
+    const res = await fetch(API_LATEST);
+    const j = await res.json();
+    // asumsi format: { status:'success', sensor_data: { temperature, ec, ppm, ph, tds, suhu_air, kelembapan, signal, status, device_id, id, timestamp } , ... }
+    const d = j.sensor_data || j.data || j;
+    if(!d) return;
+    document.getElementById('tds').innerText = safe(d.tds ?? d.ec ?? d.ppm, '');
+    document.getElementById('suhu_air').innerText = safe(d.suhu_air ?? d.water_temp ?? d.ec, ' °C');
+    document.getElementById('suhu').innerText = safe(d.suhu ?? d.temperature, ' °C');
+    document.getElementById('kelembapan').innerText = safe(d.kelembapan ?? d.humidity, ' %');
+    document.getElementById('signal').innerText = safe(d.signal, '');
+    document.getElementById('status').innerText = safe(d.status, '');
+    document.getElementById('device_id').innerText = safe(d.device_id ?? d.Device_id ?? '-');
+    document.getElementById('id').innerText = safe(d.id ?? '-', '');
+    document.getElementById('timestamp').innerText = d.timestamp ? new Date(d.timestamp).toLocaleString('id-ID') : '-';
+    document.getElementById('lastUpdated').innerText = new Date().toLocaleString('id-ID');
+  }catch(e){
+    console.error('fetchLatest err', e);
+  }
+}
+
+/* fetch history and draw charts
+   expected response: array of objects sorted asc/desc with fields:
+   { timestamp, tds, suhu_air, suhu, kelembapan, signal, status }
+*/
+async function fetchHistory(range='all'){
+  try{
+    const res = await fetch(API_HISTORY + encodeURIComponent(range));
+    const arr = await res.json();
+    return Array.isArray(arr) ? arr : (arr.data || []);
+  }catch(e){
+    console.error('fetchHistory', e);
+    return [];
+  }
+}
+
+/* build Chart.js datasets from array */
+function buildDatasets(arr){
+  const labels = arr.map(r => {
+    const t = r.timestamp || r.ts || r.time;
+    return t ? new Date(t).toLocaleString() : '';
+  });
+  const temp = arr.map(r => Number(r.suhu ?? r.temperature ?? null));
+  const wtemp = arr.map(r => Number(r.suhu_air ?? r.water_temp ?? null));
+  const hum = arr.map(r => Number(r.kelembapan ?? r.humidity ?? null));
+  const tds = arr.map(r => Number(r.tds ?? r.ec ?? r.ppm ?? null));
+  return { labels, temp, wtemp, hum, tds };
+}
+
+/* init charts */
+function initCharts(){
+  // If charts were already initialized (e.g., script re-run), destroy them first
+  try{ if(window.mainChart && typeof window.mainChart.destroy === 'function'){ window.mainChart.destroy(); } }catch(e){}
+  try{ if(window.chartTemp && typeof window.chartTemp.destroy === 'function'){ window.chartTemp.destroy(); } }catch(e){}
+  try{ if(window.chartWaterTemp && typeof window.chartWaterTemp.destroy === 'function'){ window.chartWaterTemp.destroy(); } }catch(e){}
+  try{ if(window.chartHum && typeof window.chartHum.destroy === 'function'){ window.chartHum.destroy(); } }catch(e){}
+
+  const ctxMain = document.getElementById('mainChart').getContext('2d');
+  mainChart = new Chart(ctxMain, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label:'Suhu', data:[], tension:0.2, fill:false},
+      { label:'Suhu Air', data:[], tension:0.2, fill:false},
+      { label:'Kelembapan', data:[], tension:0.2, fill:false}
+    ]},
+    options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      scales:{ y:{ beginAtZero:false } }
+    }
+  });
+
+  // keep references on window so destroy() logic above can find them reliably
+  window.mainChart = mainChart;
+
+  const ctxTemp = document.getElementById('chartTemp').getContext('2d');
+  chartTemp = new Chart(ctxTemp, { type:'line', data:{labels:[],datasets:[{label:'Suhu',data:[],tension:0.2,fill:true}]}, options:{maintainAspectRatio:false} });
+  window.chartTemp = chartTemp;
+
+  const ctxWater = document.getElementById('chartWaterTemp').getContext('2d');
+  chartWaterTemp = new Chart(ctxWater, { type:'line', data:{labels:[],datasets:[{label:'Suhu Air',data:[],tension:0.2,fill:true}]}, options:{maintainAspectRatio:false} });
+  window.chartWaterTemp = chartWaterTemp;
+
+  const ctxHum = document.getElementById('chartHum').getContext('2d');
+  chartHum = new Chart(ctxHum, { type:'line', data:{labels:[],datasets:[{label:'Kelembapan',data:[],tension:0.2,fill:true}]}, options:{maintainAspectRatio:false} });
+  window.chartHum = chartHum;
+}
+
+async function loadRange(rangeKey){
+  // UI: set active button
+  document.querySelectorAll('.controls .btn').forEach(b => b.classList.toggle('active', b.dataset.range === String(rangeKey)));
+  const arr = await fetchHistory(rangeKey);
+  const ds = buildDatasets(arr);
+  // update mainChart
+  mainChart.data.labels = ds.labels;
+  mainChart.data.datasets[0].data = ds.temp;
+  mainChart.data.datasets[1].data = ds.wtemp;
+  mainChart.data.datasets[2].data = ds.hum;
+  mainChart.update();
+
+  // small charts
+  chartTemp.data.labels = ds.labels; chartTemp.data.datasets[0].data = ds.temp; chartTemp.update();
+  chartWaterTemp.data.labels = ds.labels; chartWaterTemp.data.datasets[0].data = ds.wtemp; chartWaterTemp.update();
+  chartHum.data.labels = ds.labels; chartHum.data.datasets[0].data = ds.hum; chartHum.update();
+
+  // table preview (take last 20)
+  const tbody = document.querySelector('#historyTable tbody');
+  tbody.innerHTML = '';
+  (arr.slice(-20).reverse() || []).forEach(r => {
+    const tr = document.createElement('tr');
+    const ts = r.timestamp || r.ts || r.time;
+    tr.innerHTML = `<td>${ts ? new Date(ts).toLocaleString() : '-'}</td>
+                    <td>${safe(r.tds ?? r.ec ?? r.ppm ?? '-')}</td>
+                    <td>${safe(r.suhu_air ?? '-')}</td>
+                    <td>${safe(r.suhu ?? r.temperature ?? '-')}</td>
+                    <td>${safe(r.kelembapan ?? r.humidity ?? '-')}</td>
+                    <td>${safe(r.signal ?? '-')}</td>
+                    <td>${safe(r.status ?? '-')}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+/* wire controls */
+document.addEventListener('DOMContentLoaded', async () => {
+  initCharts();
+  // initial fetch
+  await fetchLatest();
+  // set interval for latest
+  setInterval(fetchLatest, 5000);
+
+  // load default range (all)
+  await loadRange('all');
+
+  // range buttons
+  document.querySelectorAll('.controls .btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const r = btn.dataset.range;
+      await loadRange(r);
+    });
+  });
+
+  document.getElementById('yAxisSelect').addEventListener('change', (e) => {
+    const val = e.target.value;
+    if(val === 'auto'){ mainChart.options.scales.y.beginAtZero = false; mainChart.options.scales.y.min = undefined; mainChart.options.scales.y.max = undefined; }
+    else {
+      const [min,max] = val.split('-').map(Number);
+      mainChart.options.scales.y.beginAtZero = false;
+      mainChart.options.scales.y.min = min;
+      mainChart.options.scales.y.max = max;
+    }
+    mainChart.update();
+  });
+});
+</script>
+</body>
+</html>
