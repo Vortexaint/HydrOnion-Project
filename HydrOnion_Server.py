@@ -4,10 +4,6 @@ import paho.mqtt.client as mqtt
 import mysql.connector
 import json
 from datetime import datetime
-import subprocess
-import os
-import time
-import requests
 from flask import send_from_directory
 import re
 import sys
@@ -24,13 +20,90 @@ CORS(app)
 db = mysql.connector.connect(
     host="localhost",
     user="root",
-    password="",
+    password="Bakti123",
     database="hydronion"
 )
 cursor = db.cursor()
 
-NGROK_PATH = r"C:\ngrok-v3-stable-windows-amd64\ngrok.exe"
+# Create sensor data table if it doesn't exist
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS data_sensor (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    suhu FLOAT,
+    humidity FLOAT,
+    lux FLOAT,
+    tds_ppm FLOAT,
+    suhu_air FLOAT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+""")
+db.commit()
+
+# Global sensor data variables
+sensor_data = {
+    "suhu": None,
+    "humidity": None,
+    "lux": None,
+    "tds_ppm": None,
+    "suhu_air": None,
+    "lamp_state": None,
+    "pump_state": None,
+    "humidifier_state": None
+}
+
 DEFAULT_PORT = 5000
+
+# ==============================
+# 3️⃣ MQTT Configuration
+# ==============================
+def on_connect(client, userdata, flags, rc):
+    print("Terhubung ke MQTT Broker dengan kode:", rc)
+    client.subscribe("esp32/hyrdonion/data")  # subscribe topic sensor
+
+def on_message(client, userdata, msg):
+    try:
+        payload = msg.payload.decode()
+        print("Pesan MQTT diterima:", payload)
+
+        # Parse JSON dari payload MQTT
+        data = json.loads(payload)
+        sensor_data["suhu"] = float(data.get("suhu", 0))
+        sensor_data["humidity"] = float(data.get("humidity", 0))
+        sensor_data["lux"] = float(data.get("lux", 0))
+        sensor_data["tds_ppm"] = float(data.get("tds_ppm", 0))
+        sensor_data["suhu_air"] = float(data.get("suhu_air", 0))
+
+        print("Data sensor diperbarui:", sensor_data)
+
+        # ===== SIMPAN KE DATABASE =====
+        sql = """
+            INSERT INTO data_sensor (suhu, humidity, lux, tds_ppm, suhu_air)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        val = (
+            sensor_data["suhu"],
+            sensor_data["humidity"],
+            sensor_data["lux"],
+            sensor_data["tds_ppm"],
+            sensor_data["suhu_air"],
+        )
+        cursor.execute(sql, val)
+        db.commit()
+
+        print("Data berhasil disimpan ke database hydronion.data_sensor.")
+
+    except Exception as e:
+        print("Error parsing/saving message:", e)
+
+# Setup MQTT Client
+MQTT_BROKER = "broker.hivemq.com"
+MQTT_PORT = 1883
+
+mqtt_client = mqtt.Client()
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+mqtt_client.loop_start()
 
 
 # Serve the frontend index.html and other static assets from the `public` folder
@@ -139,6 +212,66 @@ def index():
     return send_from_directory('public', 'index.html')
 
 
+@app.route("/lamp", methods=["POST"])
+def control_lamp():
+    try:
+        data = request.get_json()
+        state = data.get("state")
+
+        if state not in ["ON", "OFF"]:
+            return jsonify({"error": "State harus 'ON' atau 'OFF'"}), 400
+
+        # Publish perintah ke MQTT untuk lamp
+        mqtt_client.publish("esp32/hyrdonion/relay/lamp", json.dumps({"lamp": state}))
+        print(f"Perintah lamp dikirim ke MQTT: {state}")
+
+        # Update status terakhir
+        sensor_data["lamp_state"] = state
+        return jsonify({"status": f"Lamp {state}"})
+    except Exception as e:
+        print("Error mengirim perintah lamp:", e)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/pump", methods=["POST"])
+def control_pump():
+    try:
+        data = request.get_json()
+        state = data.get("state")
+
+        if state not in ["ON", "OFF"]:
+            return jsonify({"error": "State harus 'ON' atau 'OFF'"}), 400
+
+        # Publish perintah ke MQTT untuk pump
+        mqtt_client.publish("esp32/hyrdonion/relay/pump", json.dumps({"pump": state}))
+        print(f"Perintah pump dikirim ke MQTT: {state}")
+
+        # Update status terakhir
+        sensor_data["pump_state"] = state
+        return jsonify({"status": f"Pump {state}"})
+    except Exception as e:
+        print("Error mengirim perintah pump:", e)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/humidifier", methods=["POST"])
+def control_humidifier():
+    try:
+        data = request.get_json()
+        state = data.get("state")
+
+        if state not in ["ON", "OFF"]:
+            return jsonify({"error": "State harus 'ON' atau 'OFF'"}), 400
+
+        # Publish perintah ke MQTT untuk humidifier
+        mqtt_client.publish("esp32/hyrdonion/relay/humidifier", json.dumps({"humidifier": state}))
+        print(f"Perintah humidifier dikirim ke MQTT: {state}")
+
+        # Update status terakhir
+        sensor_data["humidifier_state"] = state
+        return jsonify({"status": f"Humidifier {state}"})
+    except Exception as e:
+        print("Error mengirim perintah humidifier:", e)
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/debug_clients')
 def debug_clients():
     """Debug endpoint: return current rows from client_data for quick inspection.
@@ -154,65 +287,15 @@ def debug_clients():
         return jsonify({'status':'error','message': str(e)}), 500
 
 
-def start_ngrok(port: int = DEFAULT_PORT, hostname: str | None = None, authtoken: str | None = None):
-    """Start ngrok and return the public URL (or None on failure).
 
-    This mirrors the behavior used in `server.py`: start the ngrok process and
-    query the local ngrok HTTP API at localhost:4040 to discover the public URL.
-    """
-    if not os.path.isfile(NGROK_PATH):
-        print(f"ngrok executable not found at {NGROK_PATH}. Please install ngrok and set NGROK_PATH accordingly.")
-        return None
-
-    cmd = [NGROK_PATH, 'http', str(port)]
-    if hostname:
-        cmd += ['--hostname', hostname]
-
-    env = os.environ.copy()
-    if authtoken:
-        # ngrok v3 supports authtoken via env or config; exporting env is simple
-        env['NGROK_AUTHTOKEN'] = authtoken
-
-    print('Starting ngrok with command:', ' '.join(cmd))
-    try:
-        subprocess.Popen(cmd, env=env)
-    except Exception as e:
-        print('Failed to start ngrok process:', e)
-        return None
-
-    # Wait a short moment for ngrok to initialize its local API
-    time.sleep(2)
-
-    # Query the local ngrok API for the public tunnel URL
-    try:
-        res = requests.get('http://localhost:4040/api/tunnels', timeout=2.5)
-        data = res.json()
-        tunnels = data.get('tunnels') or []
-        if not tunnels:
-            return None
-        # prefer an https public_url if present
-        for t in tunnels:
-            url = t.get('public_url')
-            if url and url.startswith('https'):
-                return url
-        # fallback to first available
-        return tunnels[0].get('public_url')
-    except Exception:
-        return None
 
 
 if __name__ == '__main__':
-    print(f"🟡 Starting Flask server at 0.0.0.0:{DEFAULT_PORT}")
-    print("🔄 Starting Ngrok tunnel...")
-
-    ngrok_url = start_ngrok(DEFAULT_PORT)
-    if ngrok_url:
-        print(f"✅ Public URL (akses dari WiFi lain / internet): {ngrok_url}")
-    else:
-        print("❌ Ngrok gagal dijalankan! Pastikan ngrok terinstall & login pakai auth token.")
-
+    print(f"Starting HydrOnion Flask server at 0.0.0.0:{DEFAULT_PORT}")
+    print("MQTT client connecting to broker.hivemq.com...")
+    
     # Run Flask
-    app.run(host='0.0.0.0', port=DEFAULT_PORT)
+    app.run(host='0.0.0.0', port=DEFAULT_PORT, debug=True)
 
 
 # -----------------------------
