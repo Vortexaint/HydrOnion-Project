@@ -1,109 +1,183 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import paho.mqtt.client as mqtt
 import mysql.connector
 import json
 from datetime import datetime
 from flask import send_from_directory
+import subprocess
 import re
 import sys
+import os
+import time
+import requests
 
 # ==============================
-# 1️⃣ Inisialisasi Flask
+# Utility Functions
+# ==============================
+
+def execute_query(query, params=None, fetch=False):
+    """Utility function to execute a database query."""
+    db = None
+    cursor = None
+    try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True if fetch else None)
+        cursor.execute(query, params or ())
+        if fetch:
+            result = cursor.fetchall()
+        else:
+            db.commit()
+            result = None
+        return result
+    except Exception as e:
+        print(f"Database query error: {e}", file=sys.stderr)
+        if db:
+            try:
+                db.rollback()
+            except:
+                pass
+        return None
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db:
+            try:
+                db.close()
+            except:
+                pass
+
+# ==============================
+# 1️⃣ Flask Initialization
 # ==============================
 app = Flask(__name__)
 CORS(app)
 
 # ==============================
-# 2️⃣ Koneksi ke Database (global)
+# 2️⃣ Database Initialization
 # ==============================
-db = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="Bakti123",
-    database="hydronion"
-)
-cursor = db.cursor()
+
+def get_db_connection():
+    try:
+        return mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="hydronion",
+            connect_timeout=10
+        )
+    except mysql.connector.Error as e:
+        print(f"Database connection error: {e}", file=sys.stderr)
+        raise
+
 
 # Create sensor data table if it doesn't exist
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS data_sensor (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    suhu FLOAT,
-    humidity FLOAT,
-    lux FLOAT,
-    tds_ppm FLOAT,
-    suhu_air FLOAT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-""")
-db.commit()
+def ensure_sensor_table():
+    db = get_db_connection()
+    cursor = db.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS `sensor_data` (
+        `sensor_id` INT NOT NULL AUTO_INCREMENT,
+        `tds` FLOAT NULL DEFAULT NULL,
+        `suhu_air` FLOAT NULL DEFAULT NULL,
+        `suhu` FLOAT NULL DEFAULT NULL,
+        `kelembapan` FLOAT NULL DEFAULT NULL,
+        `status` VARCHAR(50) NULL DEFAULT NULL COLLATE 'utf8mb4_0900_ai_ci',
+        `timestamp` DATETIME NULL DEFAULT NULL,
+        PRIMARY KEY (`sensor_id`) USING BTREE
+    )
+    COLLATE='utf8mb4_0900_ai_ci'
+    ENGINE=InnoDB
+    AUTO_INCREMENT=2
+    ;
+    """)
+    db.commit()
+    cursor.close()
+    db.close()
+ensure_sensor_table()
+
+# Ensure the client_details table exists
+
+def ensure_client_details_table():
+    """Create client_details table if it doesn't exist."""
+    try:
+        db = get_db_connection()
+        cur = db.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS `client_details` (
+                `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                `mac_address` VARCHAR(255),
+                `ip_address` VARCHAR(255),
+                `user_agent` TEXT,
+                `country` VARCHAR(255),
+                `region` VARCHAR(255),
+                `access_date` DATE,
+                `access_time` TIME
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        db.commit()
+        cur.close()
+        db.close()
+    except Exception as e:
+        print('ensure_client_details_table error:', e, file=sys.stderr)
+
+ensure_client_details_table()
 
 # Global sensor data variables
 sensor_data = {
     "suhu": None,
-    "humidity": None,
-    "lux": None,
-    "tds_ppm": None,
+    "kelembapan": None,
+    "tds": None,
     "suhu_air": None,
-    "lamp_state": None,
-    "pump_state": None,
-    "humidifier_state": None
+    "status": None,
+    "timestamp": None
 }
 
 DEFAULT_PORT = 5000
 
-# ==============================
-# 3️⃣ MQTT Configuration
-# ==============================
-def on_connect(client, userdata, flags, rc):
-    print("Terhubung ke MQTT Broker dengan kode:", rc)
-    client.subscribe("esp32/hyrdonion/data")  # subscribe topic sensor
 
-def on_message(client, userdata, msg):
+# ==============================
+# 3️⃣ REST API for Sensor Data Input
+# ==============================
+
+@app.route('/sensor_data', methods=['POST'])
+def receive_sensor_data():
     try:
-        payload = msg.payload.decode()
-        print("Pesan MQTT diterima:", payload)
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON payload received'}), 400
 
-        # Parse JSON dari payload MQTT
-        data = json.loads(payload)
-        sensor_data["suhu"] = float(data.get("suhu", 0))
-        sensor_data["humidity"] = float(data.get("humidity", 0))
-        sensor_data["lux"] = float(data.get("lux", 0))
-        sensor_data["tds_ppm"] = float(data.get("tds_ppm", 0))
-        sensor_data["suhu_air"] = float(data.get("suhu_air", 0))
+        # Parse and update global sensor_data
+        for key in sensor_data.keys():
+            sensor_data[key] = data.get(key, None)
 
-        print("Data sensor diperbarui:", sensor_data)
-
-        # ===== SIMPAN KE DATABASE =====
+        # Save to database
         sql = """
-            INSERT INTO data_sensor (suhu, humidity, lux, tds_ppm, suhu_air)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO sensor_data (suhu, kelembapan, tds, suhu_air, status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """
-        val = (
+        result = execute_query(sql, (
             sensor_data["suhu"],
-            sensor_data["humidity"],
-            sensor_data["lux"],
-            sensor_data["tds_ppm"],
+            sensor_data["kelembapan"],
+            sensor_data["tds"],
             sensor_data["suhu_air"],
-        )
-        cursor.execute(sql, val)
-        db.commit()
+            sensor_data["status"],
+            sensor_data["timestamp"]
+        ))
+        
+        if result is None:
+            # execute_query returns None on error when fetch=False
+            # but it's also None on success, so we just log this
+            print("Sensor data insert may have failed - check database", file=sys.stderr)
 
-        print("Data berhasil disimpan ke database hydronion.data_sensor.")
-
+        return jsonify({'status': 'success', 'message': 'Sensor data received and stored.'})
     except Exception as e:
-        print("Error parsing/saving message:", e)
-
-# Setup MQTT Client
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-
-mqtt_client = mqtt.Client()
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-mqtt_client.loop_start()
+        print(f"receive_sensor_data error: {e}", file=sys.stderr)
+        return jsonify({'error': str(e)}), 500
 
 
 # Serve the frontend index.html and other static assets from the `public` folder
@@ -111,7 +185,9 @@ mqtt_client.loop_start()
 def index():
     # Log client access (best-effort) for each request
     try:
-        log_client_access(request)
+        response = log_client_details(request)
+        if response:
+            return response
     except Exception:
         pass
 
@@ -121,9 +197,10 @@ def index():
         # lightweight API handler that returns latest record or history
         def find_best_table():
             # find best candidate table by matching expected sensor columns
-            expected = {'tds','ec','ppm','suhu_air','suhu','temperature','kelembapan','humidity','timestamp','ts','time','device_id','signal','status','id'}
-            cursor2 = db.cursor()
-            cursor2.execute("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s", (db.database,))
+            expected = {'tds', 'suhu_air', 'suhu', 'kelembapan', 'temperature', 'timestamp', 'status'}
+            db2 = get_db_connection()
+            cursor2 = db2.cursor()
+            cursor2.execute("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s", (db2.database,))
             rows = cursor2.fetchall()
             tables = {}
             for tname, col in rows:
@@ -136,6 +213,8 @@ def index():
                 if score > best_score:
                     best_score = score
                     best = (t, cols)
+            cursor2.close()
+            db2.close()
             return best
 
         def choose_timestamp_col(cols:set):
@@ -152,7 +231,8 @@ def index():
             table, cols = candidate
             ts_col = choose_timestamp_col(cols)
             try:
-                cur = db.cursor(dictionary=True)
+                db3 = get_db_connection()
+                cur = db3.cursor(dictionary=True)
                 if ts_col:
                     q = f"SELECT * FROM `{table}` ORDER BY `{ts_col}` DESC LIMIT 1"
                 else:
@@ -163,8 +243,13 @@ def index():
                         q = f"SELECT * FROM `{table}` LIMIT 1"
                 cur.execute(q)
                 row = cur.fetchone()
+                cur.close()
+                db3.close()
+                # Add client IP address to the response
+                client_ip = get_client_ip(request)
                 if not row:
-                    return jsonify({'status':'ok','sensor_data':None})
+                    return jsonify({'status':'ok','sensor_data':{'ip_address': client_ip}})
+                row['ip_address'] = client_ip
                 return jsonify({'status':'success','sensor_data':row})
             except Exception as e:
                 return jsonify({'status':'error','message':str(e)}), 500
@@ -178,29 +263,40 @@ def index():
             table, cols = candidate
             ts_col = choose_timestamp_col(cols)
             try:
-                cur = db.cursor(dictionary=True)
+                db4 = get_db_connection()
+                cur = db4.cursor(dictionary=True)
                 if rng == 'all':
                     q = f"SELECT * FROM `{table}` ORDER BY `{ts_col or 'id'}` DESC LIMIT 2000" if ts_col or 'id' in cols else f"SELECT * FROM `{table}` LIMIT 2000"
                     cur.execute(q)
                     rows = cur.fetchall()
+                    cur.close()
+                    db4.close()
                     return jsonify(rows[::-1])
                 if rng == 'today' and ts_col:
                     q = f"SELECT * FROM `{table}` WHERE DATE(`{ts_col}`)=CURDATE() ORDER BY `{ts_col}` ASC"
                     cur.execute(q)
-                    return jsonify(cur.fetchall())
+                    rows = cur.fetchall()
+                    cur.close()
+                    db4.close()
+                    return jsonify(rows)
                 # numeric days
                 try:
                     days = int(rng)
                     if ts_col:
                         q = f"SELECT * FROM `{table}` WHERE `{ts_col}` >= NOW() - INTERVAL %s DAY ORDER BY `{ts_col}` ASC"
                         cur.execute(q, (days,))
-                        return jsonify(cur.fetchall())
+                        rows = cur.fetchall()
+                        cur.close()
+                        db4.close()
+                        return jsonify(rows)
                 except Exception:
                     pass
                 # fallback: return last 200 rows
                 q = f"SELECT * FROM `{table}` ORDER BY `{ts_col or 'id'}` DESC LIMIT 200"
                 cur.execute(q)
                 rows = cur.fetchall()
+                cur.close()
+                db4.close()
                 return jsonify(rows[::-1])
             except Exception as e:
                 return jsonify({'status':'error','message':str(e)}), 500
@@ -212,65 +308,7 @@ def index():
     return send_from_directory('public', 'index.html')
 
 
-@app.route("/lamp", methods=["POST"])
-def control_lamp():
-    try:
-        data = request.get_json()
-        state = data.get("state")
-
-        if state not in ["ON", "OFF"]:
-            return jsonify({"error": "State harus 'ON' atau 'OFF'"}), 400
-
-        # Publish perintah ke MQTT untuk lamp
-        mqtt_client.publish("esp32/hyrdonion/relay/lamp", json.dumps({"lamp": state}))
-        print(f"Perintah lamp dikirim ke MQTT: {state}")
-
-        # Update status terakhir
-        sensor_data["lamp_state"] = state
-        return jsonify({"status": f"Lamp {state}"})
-    except Exception as e:
-        print("Error mengirim perintah lamp:", e)
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/pump", methods=["POST"])
-def control_pump():
-    try:
-        data = request.get_json()
-        state = data.get("state")
-
-        if state not in ["ON", "OFF"]:
-            return jsonify({"error": "State harus 'ON' atau 'OFF'"}), 400
-
-        # Publish perintah ke MQTT untuk pump
-        mqtt_client.publish("esp32/hyrdonion/relay/pump", json.dumps({"pump": state}))
-        print(f"Perintah pump dikirim ke MQTT: {state}")
-
-        # Update status terakhir
-        sensor_data["pump_state"] = state
-        return jsonify({"status": f"Pump {state}"})
-    except Exception as e:
-        print("Error mengirim perintah pump:", e)
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/humidifier", methods=["POST"])
-def control_humidifier():
-    try:
-        data = request.get_json()
-        state = data.get("state")
-
-        if state not in ["ON", "OFF"]:
-            return jsonify({"error": "State harus 'ON' atau 'OFF'"}), 400
-
-        # Publish perintah ke MQTT untuk humidifier
-        mqtt_client.publish("esp32/hyrdonion/relay/humidifier", json.dumps({"humidifier": state}))
-        print(f"Perintah humidifier dikirim ke MQTT: {state}")
-
-        # Update status terakhir
-        sensor_data["humidifier_state"] = state
-        return jsonify({"status": f"Humidifier {state}"})
-    except Exception as e:
-        print("Error mengirim perintah humidifier:", e)
-        return jsonify({"error": str(e)}), 500
+# The relay control endpoints are now disabled (no MQTT). If needed, implement REST-based relay control here.
 
 @app.route('/debug_clients')
 def debug_clients():
@@ -279,24 +317,26 @@ def debug_clients():
     Note: This is a diagnostic endpoint. Remove or protect it in production.
     """
     try:
-        cur = db.cursor(dictionary=True)
+        db5 = get_db_connection()
+        cur = db5.cursor(dictionary=True)
         cur.execute("SELECT * FROM client_data ORDER BY client_id DESC LIMIT 200")
         rows = cur.fetchall()
+        cur.close()
+        db5.close()
         return jsonify({'status':'success','count': len(rows), 'rows': rows})
     except Exception as e:
         return jsonify({'status':'error','message': str(e)}), 500
 
-
-
-
-
-if __name__ == '__main__':
-    print(f"Starting HydrOnion Flask server at 0.0.0.0:{DEFAULT_PORT}")
-    print("MQTT client connecting to broker.hivemq.com...")
-    
-    # Run Flask
-    app.run(host='0.0.0.0', port=DEFAULT_PORT, debug=True)
-
+# ==============================
+# 4️⃣ REST API for Hydroponic Plant Recommendations
+# ==============================
+@app.route('/api/plant_rekomendasi', methods=['GET'])
+def get_plant_rekomendasi():
+    try:
+        rows = execute_query("SELECT * FROM plant_rekomendasi ORDER BY id ASC", fetch=True)
+        return jsonify({'status': 'success', 'data': rows})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # -----------------------------
 # Client identification / logging helpers
@@ -304,6 +344,7 @@ if __name__ == '__main__':
 def ensure_client_table():
     """Create client_data table if it doesn't exist."""
     try:
+        db = get_db_connection()
         cur = db.cursor()
         cur.execute(
             """
@@ -314,6 +355,8 @@ def ensure_client_table():
             """
         )
         db.commit()
+        cur.close()
+        db.close()
     except Exception as e:
         # avoid crashing the server for DB table creation issues
         print('ensure_client_table error:', e, file=sys.stderr)
@@ -359,32 +402,139 @@ def get_mac_from_arp(ip: str) -> str | None:
 
 
 def log_client_access(req):
-    """Detect client device id (MAC for local devices if available, else IP) and insert into client_data table.
-
-    Behavior:
-    - If client is on same LAN and MAC found via ARP, use MAC.
-    - Otherwise use client IP.
-    """
+    """Detect client IP address and insert into client_data table."""
     try:
         ensure_client_table()
         ip = get_client_ip(req)
-        device_id = None
-        # Try get MAC only for private/local IPs (quick heuristic)
-        if ip:
-            # consider IPv4 private ranges
-            if re.match(r'^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)', ip) or ip.startswith('127.'):
-                mac = get_mac_from_arp(ip)
-                if mac:
-                    device_id = mac
-        if not device_id:
-            device_id = ip or req.headers.get('User-Agent', 'unknown')
 
-        # Insert device_id if not exists
+        # Insert IP address as device_id if not exists
+        db = get_db_connection()
         cur = db.cursor()
-        cur.execute("SELECT client_id FROM client_data WHERE device_id=%s", (device_id,))
+        cur.execute("SELECT client_id FROM client_data WHERE device_id=%s", (ip,))
         if not cur.fetchone():
-            cur.execute("INSERT INTO client_data (device_id) VALUES (%s)", (device_id,))
+            cur.execute("INSERT INTO client_data (device_id) VALUES (%s)", (ip,))
             db.commit()
+        cur.close()
+        db.close()
     except Exception as e:
         # Log the error but don't break the request
         print('log_client_access error:', e, file=sys.stderr)
+
+
+def log_client_details(req):
+    """Log client details including MAC/IP, browser, and access time. Avoid duplicates using cookies."""
+    try:
+        ensure_client_details_table()
+        ip = get_client_ip(req)
+        mac = get_mac_from_arp(ip)
+        user_agent = req.headers.get('User-Agent', 'unknown')
+
+        # Check for existing cookie
+        client_cookie = request.cookies.get('client_id')
+        if client_cookie:
+            print(f"Client already logged: {client_cookie}", file=sys.stderr)
+            return
+
+        # Fetch location details using iplocate.io API
+        location_url = "https://iplocate.io/api/lookup"
+        country, region = None, None
+        try:
+            response = requests.get(location_url, timeout=5)
+            if response.status_code == 200:
+                location_data = response.json()
+                country = location_data.get('country')
+                region = location_data.get('subdivision')
+            else:
+                print(f"Failed to fetch location data. Status code: {response.status_code}", file=sys.stderr)
+        except Exception as e:
+            print('Failed to fetch location data:', e, file=sys.stderr)
+
+        # Get current date and time
+        date = datetime.utcnow().date()
+        time_now = datetime.utcnow().time()
+
+        # Insert details into the database
+        db = get_db_connection()
+        cur = db.cursor()
+        cur.execute(
+            """
+            INSERT INTO client_details (mac_address, ip_address, user_agent, country, region, access_date, access_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (mac, ip, user_agent, country, region, date, time_now)  
+        )
+        db.commit()
+        cur.close()
+        db.close()
+
+        # Set a cookie to avoid duplicate entries
+        response = jsonify({'status': 'success', 'message': 'Client logged successfully'})
+        response.set_cookie('client_id', f'{ip}-{mac}', max_age=30 * 24 * 60 * 60)  # 30 days
+        return response
+    except Exception as e:
+        print('log_client_details error:', e, file=sys.stderr)
+
+
+# Remove the /ban_client endpoint
+
+# Define ngrok path and default port
+NGROK_PATH = r"C:\ngrok-v3-stable-windows-amd64\ngrok.exe"
+NGROK_AUTHTOKEN = "2rFRohjWilTo8F3FkWMI8HrIf6E_2wnkYBs8LbJ72NVJA3JQs"
+DEFAULT_PORT = 5000
+
+def start_ngrok(port: int = DEFAULT_PORT, hostname: str | None = None, authtoken: str | None = None):
+    """Start ngrok and return the public URL (or None on failure)."""
+    if not os.path.isfile(NGROK_PATH):
+        print(f"ngrok executable not found at {NGROK_PATH}. Please install ngrok and set NGROK_PATH accordingly.")
+        return None
+
+    cmd = [NGROK_PATH, 'http', str(port)]
+    if hostname:
+        cmd += ['--hostname', hostname]
+
+    env = os.environ.copy()
+    if authtoken:
+        env['NGROK_AUTHTOKEN'] = authtoken
+
+    print('Starting ngrok with command:', ' '.join(cmd))
+    try:
+        subprocess.Popen(cmd, env=env)
+    except Exception as e:
+        print('Failed to start ngrok process:', e)
+        return None
+
+    # Wait a short moment for ngrok to initialize its local API
+    time.sleep(2)
+
+    # Query the local ngrok API for the public tunnel URL
+    try:
+        res = requests.get('http://localhost:4040/api/tunnels', timeout=2.5)
+        data = res.json()
+        tunnels = data.get('tunnels') or []
+        if not tunnels:
+            return None
+        # prefer an https public_url if present
+        for t in tunnels:
+            url = t.get('public_url')
+            if url and url.startswith('https'):
+                return url
+        # fallback to first available
+        return tunnels[0].get('public_url')
+    except Exception:
+        return None
+
+# ==============================
+# Main Entry Point
+# ==============================
+if __name__ == '__main__':
+    print(f"🟡 Starting Flask server at 0.0.0.0:{DEFAULT_PORT}")
+    print("🔄 Starting Ngrok tunnel...")
+
+    ngrok_url = start_ngrok(DEFAULT_PORT)
+    if ngrok_url:
+        print(f"✅ Public URL (akses dari WiFi lain / internet): {ngrok_url}")
+    else:
+        print("❌ Ngrok gagal dijalankan! Pastikan ngrok terinstall & login pakai auth token.")
+
+    # Run Flask
+    app.run(host='0.0.0.0', port=DEFAULT_PORT, debug=True)

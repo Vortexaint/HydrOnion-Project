@@ -38,6 +38,14 @@
   .small-chart{height:140px}
   /* Slight min-height for left card so main chart has room on narrow screens */
   .panel > .card {min-height:220px}
+  
+  /* Toggle Switch Styles */
+  .toggle-switch{position:relative;display:inline-block;width:50px;height:26px}
+  .toggle-switch input{opacity:0;width:0;height:0}
+  .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccc;transition:0.3s;border-radius:26px}
+  .toggle-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;transition:0.3s;border-radius:50%}
+  .toggle-switch input:checked + .toggle-slider{background:#2563eb}
+  .toggle-switch input:checked + .toggle-slider:before{transform:translateX(24px)}
   </style>
 </head>
 <body>
@@ -51,19 +59,31 @@
     <div class="grid" id="metrics">
       <div class="card">
         <p class="metric-label">TDS (EC / Nutrisi)</p>
-        <div class="metric-value" id="tds">--</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="metric-value" id="tds">--</div>
+          <span id="tds-indicator" style="width:16px;height:16px;border-radius:50%;display:none"></span>
+        </div>
       </div>
       <div class="card">
         <p class="metric-label">Suhu Air</p>
-        <div class="metric-value" id="suhu_air">-- °C</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="metric-value" id="suhu_air">-- °C</div>
+          <span id="suhu_air-indicator" style="width:16px;height:16px;border-radius:50%;display:none"></span>
+        </div>
       </div>
       <div class="card">
         <p class="metric-label">Suhu Udara</p>
-        <div class="metric-value" id="suhu">-- °C</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="metric-value" id="suhu">-- °C</div>
+          <span id="suhu-indicator" style="width:16px;height:16px;border-radius:50%;display:none"></span>
+        </div>
       </div>
       <div class="card">
         <p class="metric-label">Kelembapan</p>
-        <div class="metric-value" id="kelembapan">-- %</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="metric-value" id="kelembapan">-- %</div>
+          <span id="kelembapan-indicator" style="width:16px;height:16px;border-radius:50%;display:none"></span>
+        </div>
       </div>
     </div>
 
@@ -86,17 +106,64 @@
         <div class="label-small">Informasi Perangkat</div>
         <table>
           <tbody>
-            <tr><td class="k-v">Device ID</td><td id="device_id">-</td></tr>
-            <tr><td class="k-v">Record ID</td><td id="id">-</td></tr>
+            <tr><td class="k-v">IP Address</td><td id="device_id">-</td></tr>
             <tr><td class="k-v">Timestamp</td><td id="timestamp">-</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
+    <!-- Toggle Controls -->
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:700;margin-bottom:12px">Kontrol Perangkat</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+        <!-- Humidifier Toggle -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f9fafb;border-radius:8px">
+          <span style="font-weight:600">Humidifier</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggleHumidifier">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        
+        <!-- Pompa Toggle -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f9fafb;border-radius:8px">
+          <span style="font-weight:600">Pompa</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="togglePompa">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        
+        <!-- Lampu Toggle -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f9fafb;border-radius:8px">
+          <span style="font-weight:600">Lampu</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggleLampu">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <!-- grafik + controls -->
     <div class="panel">
       <div class="card">
+        <!-- Dropdown Pilihan Tanaman dengan Ikon -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+          <label for="plantSelect" style="font-weight:600">Pilih Tanaman:</label>
+          <select id="plantSelect" class="btn" style="display:flex;align-items:center;gap:6px">
+            <option value="selada">🥬 Selada</option>
+            <option value="kangkung">🌱 Kangkung</option>
+            <option value="bayam">🥗 Bayam</option>
+            <option value="pakcoy">🥦 Pakcoy</option>
+            <option value="sawi">🥬 Sawi</option>
+          </select>
+        </div>
+        <!-- Tabel Rekomendasi Nilai Optimal -->
+        <div id="plantRekomendasi" style="margin-bottom:14px">
+          <!-- Akan diisi oleh JS -->
+        </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div class="controls" role="tablist" aria-label="Rentang waktu">
             <button class="btn active" data-range="all">All Time</button>
@@ -113,7 +180,6 @@
             </select>
           </div>
         </div>
-
         <div class="chart-area">
           <canvas id="mainChart" height="220" style="width:100%"></canvas>
         </div>
@@ -165,25 +231,98 @@ const API_HISTORY = '?action=history&range=';  // contoh: ?action=history&range=
 let mainChart, chartTemp, chartWaterTemp, chartHum;
 
 /* util untuk render angka */
-function safe(v, suffix=''){ return (v===null || v===undefined) ? '--' : (v + suffix); }
+function safe(v, suffix=''){
+  if(v === null || v === undefined || v === '') return '--';
+  return v + suffix;
+}
+
+/* Parse range dari text format seperti "560–840 ppm" atau "18–24°C" */
+function parseRange(rangeText) {
+  if (!rangeText) return null;
+  // Remove units and extra spaces
+  const cleaned = rangeText.replace(/ppm|°C|%/g, '').trim();
+  // Match numbers with dash or en-dash
+  const match = cleaned.match(/(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)/);
+  if (match) {
+    return {
+      min: parseFloat(match[1]),
+      max: parseFloat(match[2])
+    };
+  }
+  return null;
+}
+
+/* Check if value is within range and update indicator */
+function updateIndicator(elementId, value, recommendedRange) {
+  const indicator = document.getElementById(elementId + '-indicator');
+  if (!indicator) return;
+  
+  if (value === null || value === undefined || value === '' || value === '--') {
+    indicator.style.display = 'none';
+    return;
+  }
+  
+  const numValue = parseFloat(String(value).replace(/[^\d.-]/g, ''));
+  if (isNaN(numValue)) {
+    indicator.style.display = 'none';
+    return;
+  }
+  
+  const range = parseRange(recommendedRange);
+  if (!range) {
+    indicator.style.display = 'none';
+    return;
+  }
+  
+  indicator.style.display = 'inline-block';
+  if (numValue >= range.min && numValue <= range.max) {
+    indicator.style.backgroundColor = '#10b981'; // green
+    indicator.title = `Normal (${range.min}-${range.max})`;
+  } else {
+    indicator.style.backgroundColor = '#ef4444'; // red
+    indicator.title = `Out of range (${range.min}-${range.max})`;
+  }
+}
+
+/* Current sensor values for comparison */
+let currentSensorValues = {
+  tds: null,
+  suhu_air: null,
+  suhu: null,
+  kelembapan: null
+};
+
+/* Current plant recommendations */
+let currentRecommendations = null;
 
 async function fetchLatest(){
   try{
     const res = await fetch(API_LATEST);
     const j = await res.json();
-    // asumsi format: { status:'success', sensor_data: { temperature, ec, ppm, ph, tds, suhu_air, kelembapan, signal, status, device_id, id, timestamp } , ... }
+    // asumsi format: { status:'success', sensor_data: { temperature, ec, ppm, ph, tds, suhu_air, kelembapan, signal, status, ip_address, timestamp } , ... }
     const d = j.sensor_data || j.data || j;
     if(!d) return;
-    document.getElementById('tds').innerText = safe(d.tds ?? d.ec ?? d.ppm, '');
-    document.getElementById('suhu_air').innerText = safe(d.suhu_air ?? d.water_temp ?? d.ec, ' °C');
-    document.getElementById('suhu').innerText = safe(d.suhu ?? d.temperature, ' °C');
-    document.getElementById('kelembapan').innerText = safe(d.kelembapan ?? d.humidity, ' %');
+    
+    // Store current sensor values
+    currentSensorValues.tds = d.tds ?? d.ec ?? d.ppm;
+    currentSensorValues.suhu_air = d.suhu_air ?? d.water_temp;
+    currentSensorValues.suhu = d.suhu ?? d.temperature;
+    currentSensorValues.kelembapan = d.kelembapan ?? d.humidity;
+    
+    document.getElementById('tds').innerText = safe(currentSensorValues.tds, '');
+    document.getElementById('suhu_air').innerText = safe(currentSensorValues.suhu_air, ' °C');
+    document.getElementById('suhu').innerText = safe(currentSensorValues.suhu, ' °C');
+    document.getElementById('kelembapan').innerText = safe(currentSensorValues.kelembapan, ' %');
     document.getElementById('signal').innerText = safe(d.signal, '');
     document.getElementById('status').innerText = safe(d.status, '');
-    document.getElementById('device_id').innerText = safe(d.device_id ?? d.Device_id ?? '-');
-    document.getElementById('id').innerText = safe(d.id ?? '-', '');
+    document.getElementById('device_id').innerText = safe(d.ip_address, '');
     document.getElementById('timestamp').innerText = d.timestamp ? new Date(d.timestamp).toLocaleString('id-ID') : '-';
     document.getElementById('lastUpdated').innerText = new Date().toLocaleString('id-ID');
+    
+    // Update indicators if recommendations are loaded
+    if (currentRecommendations) {
+      updateAllIndicators();
+    }
   }catch(e){
     console.error('fetchLatest err', e);
   }
@@ -255,70 +394,254 @@ function initCharts(){
 }
 
 async function loadRange(rangeKey){
-  // UI: set active button
-  document.querySelectorAll('.controls .btn').forEach(b => b.classList.toggle('active', b.dataset.range === String(rangeKey)));
-  const arr = await fetchHistory(rangeKey);
-  const ds = buildDatasets(arr);
-  // update mainChart
-  mainChart.data.labels = ds.labels;
-  mainChart.data.datasets[0].data = ds.temp;
-  mainChart.data.datasets[1].data = ds.wtemp;
-  mainChart.data.datasets[2].data = ds.hum;
-  mainChart.update();
+  try {
+    // UI: set active button
+    document.querySelectorAll('.controls .btn').forEach(b => b.classList.toggle('active', b.dataset.range === String(rangeKey)));
+    const arr = await fetchHistory(rangeKey);
+    const ds = buildDatasets(arr);
+    
+    // update mainChart
+    if(mainChart) {
+      mainChart.data.labels = ds.labels;
+      mainChart.data.datasets[0].data = ds.temp;
+      mainChart.data.datasets[1].data = ds.wtemp;
+      mainChart.data.datasets[2].data = ds.hum;
+      mainChart.update();
+    }
 
-  // small charts
-  chartTemp.data.labels = ds.labels; chartTemp.data.datasets[0].data = ds.temp; chartTemp.update();
-  chartWaterTemp.data.labels = ds.labels; chartWaterTemp.data.datasets[0].data = ds.wtemp; chartWaterTemp.update();
-  chartHum.data.labels = ds.labels; chartHum.data.datasets[0].data = ds.hum; chartHum.update();
+    // small charts
+    if(chartTemp) {
+      chartTemp.data.labels = ds.labels;
+      chartTemp.data.datasets[0].data = ds.temp;
+      chartTemp.update();
+    }
+    if(chartWaterTemp) {
+      chartWaterTemp.data.labels = ds.labels;
+      chartWaterTemp.data.datasets[0].data = ds.wtemp;
+      chartWaterTemp.update();
+    }
+    if(chartHum) {
+      chartHum.data.labels = ds.labels;
+      chartHum.data.datasets[0].data = ds.hum;
+      chartHum.update();
+    }
 
-  // table preview (take last 20)
-  const tbody = document.querySelector('#historyTable tbody');
-  tbody.innerHTML = '';
-  (arr.slice(-20).reverse() || []).forEach(r => {
-    const tr = document.createElement('tr');
-    const ts = r.timestamp || r.ts || r.time;
-    tr.innerHTML = `<td>${ts ? new Date(ts).toLocaleString() : '-'}</td>
-                    <td>${safe(r.tds ?? r.ec ?? r.ppm ?? '-')}</td>
-                    <td>${safe(r.suhu_air ?? '-')}</td>
-                    <td>${safe(r.suhu ?? r.temperature ?? '-')}</td>
-                    <td>${safe(r.kelembapan ?? r.humidity ?? '-')}</td>
-                    <td>${safe(r.signal ?? '-')}</td>
-                    <td>${safe(r.status ?? '-')}</td>`;
-    tbody.appendChild(tr);
-  });
+    // table preview (take last 20)
+    const tbody = document.querySelector('#historyTable tbody');
+    if(tbody) {
+      tbody.innerHTML = '';
+      (arr.slice(-20).reverse() || []).forEach(r => {
+        const tr = document.createElement('tr');
+        const ts = r.timestamp || r.ts || r.time;
+        tr.innerHTML = `<td>${ts ? new Date(ts).toLocaleString() : '-'}</td>
+                        <td>${safe(r.tds ?? r.ec ?? r.ppm)}</td>
+                        <td>${safe(r.suhu_air)}</td>
+                        <td>${safe(r.suhu ?? r.temperature)}</td>
+                        <td>${safe(r.kelembapan ?? r.humidity)}</td>
+                        <td>${safe(r.signal)}</td>
+                        <td>${safe(r.status)}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+  } catch(e) {
+    console.error('loadRange error:', e);
+  }
 }
 
 /* wire controls */
 document.addEventListener('DOMContentLoaded', async () => {
-  initCharts();
-  // initial fetch
-  await fetchLatest();
-  // set interval for latest
-  setInterval(fetchLatest, 5000);
+  try {
+    initCharts();
+    // initial fetch
+    await fetchLatest();
+    // set interval for latest
+    setInterval(fetchLatest, 5000);
 
-  // load default range (all)
-  await loadRange('all');
+    // load default range (all)
+    await loadRange('all');
 
-  // range buttons
-  document.querySelectorAll('.controls .btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const r = btn.dataset.range;
-      await loadRange(r);
+    // range buttons
+    document.querySelectorAll('.controls .btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const r = btn.dataset.range;
+        await loadRange(r);
+      });
     });
-  });
+  } catch(e) {
+    console.error('Initialization error:', e);
+  }
 
-  document.getElementById('yAxisSelect').addEventListener('change', (e) => {
-    const val = e.target.value;
-    if(val === 'auto'){ mainChart.options.scales.y.beginAtZero = false; mainChart.options.scales.y.min = undefined; mainChart.options.scales.y.max = undefined; }
-    else {
-      const [min,max] = val.split('-').map(Number);
-      mainChart.options.scales.y.beginAtZero = false;
-      mainChart.options.scales.y.min = min;
-      mainChart.options.scales.y.max = max;
-    }
-    mainChart.update();
-  });
+  const yAxisSelect = document.getElementById('yAxisSelect');
+  if(yAxisSelect) {
+    yAxisSelect.addEventListener('change', (e) => {
+      if(!mainChart) return;
+      const val = e.target.value;
+      if(val === 'auto'){
+        mainChart.options.scales.y.beginAtZero = false;
+        mainChart.options.scales.y.min = undefined;
+        mainChart.options.scales.y.max = undefined;
+      } else {
+        const [min,max] = val.split('-').map(Number);
+        mainChart.options.scales.y.beginAtZero = false;
+        mainChart.options.scales.y.min = min;
+        mainChart.options.scales.y.max = max;
+      }
+      mainChart.update();
+    });
+  }
 });
+</script>
+<script>
+// Ambil data rekomendasi tanaman dari API
+let plantRekomendasiList = [];
+let plantRekomendasiMap = {};
+
+async function fetchPlantRekomendasi() {
+  try {
+    const res = await fetch('/api/plant_rekomendasi');
+    const j = await res.json();
+    if (j.status === 'success' && Array.isArray(j.data) && j.data.length > 0) {
+      plantRekomendasiList = j.data;
+      plantRekomendasiMap = {};
+      j.data.forEach(d => {
+        if(d.nama) {
+          plantRekomendasiMap[d.nama.toLowerCase()] = d;
+        }
+      });
+      renderPlantDropdown();
+      renderPlantRekomendasi(j.data[0].nama.toLowerCase());
+    } else {
+      console.warn('No plant recommendations available');
+      document.getElementById('plantRekomendasi').innerHTML = '<span style="color:#6b7280">Data rekomendasi tanaman tidak tersedia.</span>';
+    }
+  } catch (e) {
+    console.error('fetchPlantRekomendasi error:', e);
+    document.getElementById('plantRekomendasi').innerHTML = '<span style="color:red">Gagal memuat data rekomendasi tanaman.</span>';
+  }
+}
+
+function renderPlantDropdown() {
+  const select = document.getElementById('plantSelect');
+  if(!select) return;
+  select.innerHTML = '';
+  plantRekomendasiList.forEach(d => {
+    if(d.nama) {
+      const opt = document.createElement('option');
+      opt.value = d.nama.toLowerCase();
+      opt.textContent = `${d.icon || ''} ${d.nama}`;
+      select.appendChild(opt);
+    }
+  });
+}
+
+function updateAllIndicators() {
+  if (!currentRecommendations) return;
+  
+  updateIndicator('tds', currentSensorValues.tds, currentRecommendations.tds);
+  updateIndicator('suhu_air', currentSensorValues.suhu_air, currentRecommendations.suhu_air);
+  updateIndicator('suhu', currentSensorValues.suhu, currentRecommendations.suhu_udara);
+  updateIndicator('kelembapan', currentSensorValues.kelembapan, currentRecommendations.kelembapan);
+}
+
+function renderPlantRekomendasi(plantKey) {
+  const d = plantRekomendasiMap[plantKey] || plantRekomendasiList[0];
+  if (!d) return;
+  
+  // Store current recommendations
+  currentRecommendations = d;
+  
+  const elem = document.getElementById('plantRekomendasi');
+  if(!elem) return;
+  elem.innerHTML = `
+    <div style="font-weight:600;margin-bottom:4px">${d.icon || ''} Rekomendasi untuk <span style="color:var(--accent)">${d.nama || 'Tanaman'}</span>:</div>
+    <table style="width:auto;font-size:0.98rem">
+      <tr><td><b>TDS</b></td><td>${d.tds || '-'}</td></tr>
+      <tr><td><b>Suhu Air</b></td><td>${d.suhu_air || '-'}</td></tr>
+      <tr><td><b>Suhu Udara</b></td><td>${d.suhu_udara || '-'}</td></tr>
+      <tr><td><b>Kelembapan</b></td><td>${d.kelembapan || '-'}</td></tr>
+    </table>
+  `;
+  
+  // Update indicators with current recommendations
+  updateAllIndicators();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  fetchPlantRekomendasi();
+  const select = document.getElementById('plantSelect');
+  if(select) {
+    select.addEventListener('change', function() {
+      renderPlantRekomendasi(this.value);
+    });
+  }
+});
+</script>
+<!-- <script>
+// Toggle Control Handlers
+async function toggleDevice(device, state) {
+  try {
+    const response = await fetch(`/api/control/${device}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ state: state ? 1 : 0 })
+    });
+    const result = await response.json();
+    if (result.status === 'success') {
+      console.log(`${device} berhasil diubah menjadi ${state ? 'ON' : 'OFF'}`);
+    } else {
+      console.error(`Gagal mengubah ${device}:`, result.message);
+      alert(`Gagal mengubah ${device}: ${result.message || 'Unknown error'}`);
+    }
+  } catch (error) {
+    console.error(`Error toggle ${device}:`, error);
+    alert(`Error: Tidak dapat terhubung ke server`);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Humidifier Toggle
+  const humidifierToggle = document.getElementById('toggleHumidifier');
+  if (humidifierToggle) {
+    humidifierToggle.addEventListener('change', function() {
+      toggleDevice('humidifier', this.checked);
+    });
+  }
+  
+  // Pompa Toggle
+  const pompaToggle = document.getElementById('togglePompa');
+  if (pompaToggle) {
+    pompaToggle.addEventListener('change', function() {
+      toggleDevice('pompa', this.checked);
+    });
+  }
+  
+  // Lampu Toggle
+  const lampuToggle = document.getElementById('toggleLampu');
+  if (lampuToggle) {
+    lampuToggle.addEventListener('change', function() {
+      toggleDevice('lampu', this.checked);
+    });
+  }
+});
+</script> -->
+<script>
+// Fetch and display country and region using iplocate.io API
+fetch('https://iplocate.io/api/lookup')
+  .then(response => {
+    if(!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  })
+  .then(data => {
+    if(data && data.country) {
+      console.log(`Country: ${data.country}`);
+      console.log(`Region: ${data.subdivision || 'Unknown'}`);
+    }
+  })
+  .catch(error => console.error('Geolocation error:', error));
 </script>
 </body>
 </html>
