@@ -1,0 +1,37 @@
+/* Simple responsive layout (mobile-first) */
+:root{--card-bg:#fff;--muted:#6b7280;--accent:#2563eb}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;background:#f3f4f6;color:#111}
+.container{max-width:1100px;margin:16px auto;padding:12px}
+.header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.title{font-size:1.125rem;font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+@media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr)}}
+.card{background:var(--card-bg);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+.metric-label{color:var(--muted);font-size:0.85rem;margin:0}
+.metric-value{font-size:1.6rem;font-weight:700;margin:6px 0}
+/* controls & chart area */
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{padding:8px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+.btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.panel{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+@media(min-width:900px){.panel{grid-template-columns:1fr 420px}}
+.small-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.label-small{color:var(--muted);font-size:0.9rem}
+table{width:100%;border-collapse:collapse}
+td,th{padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:0.95rem}
+.k-v{font-weight:600}
+/* Prevent canvas from growing indefinitely and ensure consistent heights */
+canvas{display:block;max-width:100%;height:100% !important}
+/* Chart wrapper: parent defines height, canvas will fill it */
+.chart-area{height:220px}
+.small-chart{height:140px}
+/* Slight min-height for left card so main chart has room on narrow screens */
+.panel > .card {min-height:220px}
+
+/* Toggle Switch Styles */
+.toggle-switch{position:relative;display:inline-block;width:50px;height:26px}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccc;transition:0.3s;border-radius:26px}
+.toggle-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;transition:0.3s;border-radius:50%}
+.toggle-switch input:checked + .toggle-slider{background:#2563eb}
+.toggle-switch input:checked + .toggle-slider:before{transform:translateX(24px)}

@@ -308,6 +308,13 @@ def index():
     return send_from_directory('public', 'index.html')
 
 
+# Serve static files (CSS, JS, images) from the public folder
+@app.route('/<path:filename>')
+def serve_static(filename):
+    """Serve static files from the public folder."""
+    return send_from_directory('public', filename)
+
+
 # The relay control endpoints are now disabled (no MQTT). If needed, implement REST-based relay control here.
 
 @app.route('/debug_clients')

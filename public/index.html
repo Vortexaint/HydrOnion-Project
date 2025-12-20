@@ -3,55 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Dashboard Gabungan Hidroponik — Responsive</title>
-
+  <title>Dashboard Gabungan Hidroponik</title>
+  <link rel="icon" type="image/png" href="/WebIcon.png">
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-
-  <style>
-    /* Simple responsive layout (mobile-first) */
-    :root{--card-bg:#fff;--muted:#6b7280;--accent:#2563eb}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;background:#f3f4f6;color:#111}
-    .container{max-width:1100px;margin:16px auto;padding:12px}
-    .header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-    .title{font-size:1.125rem;font-weight:700}
-    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-    @media(min-width:900px){.grid{grid-template-columns:repeat(4,1fr)}}
-    .card{background:var(--card-bg);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
-    .metric-label{color:var(--muted);font-size:0.85rem;margin:0}
-    .metric-value{font-size:1.6rem;font-weight:700;margin:6px 0}
-    /* controls & chart area */
-    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .btn{padding:8px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
-    .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-    .panel{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
-    @media(min-width:900px){.panel{grid-template-columns:1fr 420px}}
-    .small-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
-    .label-small{color:var(--muted);font-size:0.9rem}
-    table{width:100%;border-collapse:collapse}
-    td,th{padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:0.95rem}
-    .k-v{font-weight:600}
-  /* Prevent canvas from growing indefinitely and ensure consistent heights */
-  canvas{display:block;max-width:100%;height:100% !important}
-  /* Chart wrapper: parent defines height, canvas will fill it */
-  .chart-area{height:220px}
-  .small-chart{height:140px}
-  /* Slight min-height for left card so main chart has room on narrow screens */
-  .panel > .card {min-height:220px}
-  
-  /* Toggle Switch Styles */
-  .toggle-switch{position:relative;display:inline-block;width:50px;height:26px}
-  .toggle-switch input{opacity:0;width:0;height:0}
-  .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccc;transition:0.3s;border-radius:26px}
-  .toggle-slider:before{position:absolute;content:"";height:20px;width:20px;left:3px;bottom:3px;background:#fff;transition:0.3s;border-radius:50%}
-  .toggle-switch input:checked + .toggle-slider{background:#2563eb}
-  .toggle-switch input:checked + .toggle-slider:before{transform:translateX(24px)}
-  </style>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <div class="title">Dashboard Hidroponik — Gabungan (Adaptive)</div>
+      <div class="title">Dashboard Hidroponik</div>
       <div style="font-size:0.9rem;color:var(--muted)">Terakhir: <span id="lastUpdated">-</span></div>
     </div>
 
@@ -164,14 +125,15 @@
         <div id="plantRekomendasi" style="margin-bottom:14px">
           <!-- Akan diisi oleh JS -->
         </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
           <div class="controls" role="tablist" aria-label="Rentang waktu">
-            <button class="btn active" data-range="all">All Time</button>
-            <button class="btn" data-range="30">Last 30 days</button>
-            <button class="btn" data-range="7">Last 7 days</button>
-            <button class="btn" data-range="today">Today</button>
+            <button class="btn active" data-range="all">Default</button>
+            <button class="btn" data-range="90">3 Bulan terakhir</button>
+            <button class="btn" data-range="30">30 Hari terakhir</button>
+            <button class="btn" data-range="7">7 Hari terakhir</button>
+            <button class="btn" data-range="today">Hari Ini</button>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:4px;align-items:center">
             <label style="font-size:0.9rem;color:var(--muted)">Y-axis:</label>
             <select id="yAxisSelect" class="btn" style="padding:6px 10px">
               <option value="auto">Auto</option>
@@ -179,6 +141,12 @@
               <option value="0-50">0 - 50</option>
             </select>
           </div>
+        </div>
+        <div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap">
+          <button class="btn active" data-view="raw" data-chart="main">Mean</button>
+          <button class="btn" data-view="mean-day" data-chart="main">Harian</button>
+          <button class="btn" data-view="mean-week" data-chart="main">Mingguan</button>
+          <button class="btn" data-view="mean-month" data-chart="main">Bulanan</button>
         </div>
         <div class="chart-area">
           <canvas id="mainChart" height="220" style="width:100%"></canvas>
@@ -189,17 +157,70 @@
       <div>
         <div class="card" style="margin-bottom:12px">
           <div style="font-weight:700;margin-bottom:8px">Suhu (ringkasan)</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-range="all" data-chart="suhu">Default</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="7" data-chart="suhu">7d</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="30" data-chart="suhu">30d</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-view="raw" data-chart="suhu">Mean</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-day" data-chart="suhu">Harian</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-week" data-chart="suhu">Mingguan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-month" data-chart="suhu">Bulanan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="minmax" data-chart="suhu">Min/Max</button>
+          </div>
           <div class="small-chart"><canvas id="chartTemp" height="140"></canvas></div>
         </div>
 
         <div class="card" style="margin-bottom:12px">
           <div style="font-weight:700;margin-bottom:8px">Suhu Air (ringkasan)</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-range="all" data-chart="suhuAir">Default</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="7" data-chart="suhuAir">7d</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="30" data-chart="suhuAir">30d</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-view="raw" data-chart="suhuAir">Mean</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-day" data-chart="suhuAir">Harian</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-week" data-chart="suhuAir">Mingguan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-month" data-chart="suhuAir">Bulanan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="minmax" data-chart="suhuAir">Min/Max</button>
+          </div>
           <div class="small-chart"><canvas id="chartWaterTemp" height="140"></canvas></div>
         </div>
 
         <div class="card">
           <div style="font-weight:700;margin-bottom:8px">Kelembapan (ringkasan)</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-range="all" data-chart="kelembapan">Default</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="7" data-chart="kelembapan">7d</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="30" data-chart="kelembapan">30d</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-view="raw" data-chart="kelembapan">Mean</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-day" data-chart="kelembapan">Harian</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-week" data-chart="kelembapan">Mingguan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-month" data-chart="kelembapan">Bulanan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="minmax" data-chart="kelembapan">Min/Max</button>
+          </div>
           <div class="small-chart"><canvas id="chartHum" height="140"></canvas></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div style="font-weight:700;margin-bottom:8px">TDS (EC / Nutrisi)</div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-range="all" data-chart="tds">Default</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="7" data-chart="tds">7d</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-range="30" data-chart="tds">30d</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+            <button class="btn active" style="padding:4px 8px;font-size:0.8rem" data-view="raw" data-chart="tds">Mean</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-day" data-chart="tds">Harian</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-week" data-chart="tds">Mingguan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="mean-month" data-chart="tds">Bulanan</button>
+            <button class="btn" style="padding:4px 8px;font-size:0.8rem" data-view="minmax" data-chart="tds">Min/Max</button>
+          </div>
+          <div class="small-chart"><canvas id="chartTDS" height="140"></canvas></div>
         </div>
       </div>
     </div>
@@ -228,12 +249,59 @@ const API_LATEST = '?action=fetch';            // contoh: ?action=fetch
 const API_HISTORY = '?action=history&range=';  // contoh: ?action=history&range=7  (server harus mengembalikan JSON list)
 
 /* Chart instances */
-let mainChart, chartTemp, chartWaterTemp, chartHum;
+let mainChart, chartTemp, chartWaterTemp, chartHum, chartTDS;
+let currentRange = 'all'; // Track current time range
 
 /* util untuk render angka */
 function safe(v, suffix=''){
   if(v === null || v === undefined || v === '') return '--';
   return v + suffix;
+}
+
+/* Format date based on time range */
+function formatDateLabel(date, range) {
+  if (!date || isNaN(date.getTime())) return '';
+  
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  
+  if (range === 'today' || isToday) {
+    // Just time for today: "14:30"
+    return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  } else if (range === '7') {
+    // Short date + time for last 7 days: "21/12 14:30"
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const time = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    return `${day}/${month} ${time}`;
+  } else if (range === '30') {
+    // Date only for last 30 days: "21 Dec"
+    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+  } else {
+    // Full date for all time: "21 Dec 2025"
+    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+}
+
+/* Format aggregated date labels */
+function formatAggregatedLabel(dateStr, period) {
+  if (!dateStr) return '';
+  
+  if (period === 'day') {
+    // "YYYY-MM-DD" -> "21 Dec 2025"
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  } else if (period === 'week') {
+    // "YYYY-MM-DD" -> "Week of 17 Dec"
+    const d = new Date(dateStr + 'T00:00:00');
+    return `Week of ${d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}`;
+  } else if (period === 'month') {
+    // "YYYY-MM" -> "Dec 2025"
+    const [year, month] = dateStr.split('-');
+    const d = new Date(year, month - 1, 1);
+    return d.toLocaleDateString('id-ID', { month: 'short', year: 'numeric' });
+  }
+  return dateStr;
 }
 
 /* Parse range dari text format seperti "560–840 ppm" atau "18–24°C" */
@@ -347,13 +415,63 @@ async function fetchHistory(range='all'){
 function buildDatasets(arr){
   const labels = arr.map(r => {
     const t = r.timestamp || r.ts || r.time;
-    return t ? new Date(t).toLocaleString() : '';
+    return t ? formatDateLabel(new Date(t), currentRange) : '';
   });
   const temp = arr.map(r => Number(r.suhu ?? r.temperature ?? null));
   const wtemp = arr.map(r => Number(r.suhu_air ?? r.water_temp ?? null));
   const hum = arr.map(r => Number(r.kelembapan ?? r.humidity ?? null));
   const tds = arr.map(r => Number(r.tds ?? r.ec ?? r.ppm ?? null));
   return { labels, temp, wtemp, hum, tds };
+}
+
+/* Update main chart based on view mode */
+function updateMainChart(arr) {
+  if(!mainChart || !arr || arr.length === 0) return;
+  
+  const activeBtn = document.querySelector('button[data-view][data-chart="main"].active');
+  const mode = activeBtn?.dataset.view || 'raw';
+  
+  if(mode === 'raw') {
+    // Show raw data
+    const ds = buildDatasets(arr);
+    mainChart.data.labels = ds.labels;
+    mainChart.data.datasets[0].data = ds.temp;
+    mainChart.data.datasets[1].data = ds.wtemp;
+    mainChart.data.datasets[2].data = ds.hum;
+    mainChart.data.datasets[3].data = ds.tds;
+  } else if(mode.startsWith('mean-')) {
+    // Aggregate data by period
+    const period = mode.replace('mean-', '');
+    const tempData = arr.map(r => ({
+      timestamp: new Date(r.timestamp || r.ts || r.time),
+      value: Number(r.suhu ?? r.temperature ?? null)
+    })).filter(d => !isNaN(d.value));
+    const wtempData = arr.map(r => ({
+      timestamp: new Date(r.timestamp || r.ts || r.time),
+      value: Number(r.suhu_air ?? r.water_temp ?? null)
+    })).filter(d => !isNaN(d.value));
+    const humData = arr.map(r => ({
+      timestamp: new Date(r.timestamp || r.ts || r.time),
+      value: Number(r.kelembapan ?? r.humidity ?? null)
+    })).filter(d => !isNaN(d.value));
+    const tdsData = arr.map(r => ({
+      timestamp: new Date(r.timestamp || r.ts || r.time),
+      value: Number(r.tds ?? r.ec ?? r.ppm ?? null)
+    })).filter(d => !isNaN(d.value));
+    
+    const tempAgg = aggregateData(tempData, period);
+    const wtempAgg = aggregateData(wtempData, period);
+    const humAgg = aggregateData(humData, period);
+    const tdsAgg = aggregateData(tdsData, period);
+    
+    mainChart.data.labels = tempAgg.labels;
+    mainChart.data.datasets[0].data = tempAgg.values;
+    mainChart.data.datasets[1].data = wtempAgg.values;
+    mainChart.data.datasets[2].data = humAgg.values;
+    mainChart.data.datasets[3].data = tdsAgg.values;
+  }
+  
+  mainChart.update();
 }
 
 /* init charts */
@@ -363,68 +481,80 @@ function initCharts(){
   try{ if(window.chartTemp && typeof window.chartTemp.destroy === 'function'){ window.chartTemp.destroy(); } }catch(e){}
   try{ if(window.chartWaterTemp && typeof window.chartWaterTemp.destroy === 'function'){ window.chartWaterTemp.destroy(); } }catch(e){}
   try{ if(window.chartHum && typeof window.chartHum.destroy === 'function'){ window.chartHum.destroy(); } }catch(e){}
+  try{ if(window.chartTDS && typeof window.chartTDS.destroy === 'function'){ window.chartTDS.destroy(); } }catch(e){}
 
   const ctxMain = document.getElementById('mainChart').getContext('2d');
   mainChart = new Chart(ctxMain, {
     type: 'line',
     data: { labels: [], datasets: [
-      { label:'Suhu', data:[], tension:0.2, fill:false},
-      { label:'Suhu Air', data:[], tension:0.2, fill:false},
-      { label:'Kelembapan', data:[], tension:0.2, fill:false}
+      { label:'Suhu', data:[], tension:0.2, fill:false, borderColor:'rgba(255,99,132,1)', backgroundColor:'rgba(255,99,132,0.1)'},
+      { label:'Suhu Air', data:[], tension:0.2, fill:false, borderColor:'rgba(54,162,235,1)', backgroundColor:'rgba(54,162,235,0.1)'},
+      { label:'Kelembapan', data:[], tension:0.2, fill:false, borderColor:'rgba(75,192,192,1)', backgroundColor:'rgba(75,192,192,0.1)'},
+      { label:'TDS', data:[], tension:0.2, fill:false, borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,0.1)'}
     ]},
     options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-      scales:{ y:{ beginAtZero:false } }
+      scales:{ 
+        y:{ beginAtZero:false },
+        x:{ 
+          ticks: { 
+            maxRotation: 45, 
+            minRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 12
+          }
+        }
+      }
     }
   });
 
   // keep references on window so destroy() logic above can find them reliably
   window.mainChart = mainChart;
 
+  const smallChartOptions = {
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        ticks: {
+          maxRotation: 45,
+          minRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 6
+        }
+      }
+    },
+    plugins: {
+      legend: { display: false }
+    }
+  };
+
   const ctxTemp = document.getElementById('chartTemp').getContext('2d');
-  chartTemp = new Chart(ctxTemp, { type:'line', data:{labels:[],datasets:[{label:'Suhu',data:[],tension:0.2,fill:true}]}, options:{maintainAspectRatio:false} });
+  chartTemp = new Chart(ctxTemp, { type:'line', data:{labels:[],datasets:[{label:'Suhu',data:[],tension:0.2,fill:true}]}, options: smallChartOptions });
   window.chartTemp = chartTemp;
 
   const ctxWater = document.getElementById('chartWaterTemp').getContext('2d');
-  chartWaterTemp = new Chart(ctxWater, { type:'line', data:{labels:[],datasets:[{label:'Suhu Air',data:[],tension:0.2,fill:true}]}, options:{maintainAspectRatio:false} });
+  chartWaterTemp = new Chart(ctxWater, { type:'line', data:{labels:[],datasets:[{label:'Suhu Air',data:[],tension:0.2,fill:true}]}, options: smallChartOptions });
   window.chartWaterTemp = chartWaterTemp;
 
   const ctxHum = document.getElementById('chartHum').getContext('2d');
-  chartHum = new Chart(ctxHum, { type:'line', data:{labels:[],datasets:[{label:'Kelembapan',data:[],tension:0.2,fill:true}]}, options:{maintainAspectRatio:false} });
+  chartHum = new Chart(ctxHum, { type:'line', data:{labels:[],datasets:[{label:'Kelembapan',data:[],tension:0.2,fill:true}]}, options: smallChartOptions });
   window.chartHum = chartHum;
+
+  const ctxTDS = document.getElementById('chartTDS').getContext('2d');
+  chartTDS = new Chart(ctxTDS, { type:'line', data:{labels:[],datasets:[{label:'TDS',data:[],tension:0.2,fill:true,borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,0.1)'}]}, options: smallChartOptions });
+  window.chartTDS = chartTDS;
 }
 
 async function loadRange(rangeKey){
   try {
+    // Track current range for date formatting
+    currentRange = rangeKey;
     // UI: set active button
-    document.querySelectorAll('.controls .btn').forEach(b => b.classList.toggle('active', b.dataset.range === String(rangeKey)));
+    document.querySelectorAll('.controls .btn[data-range]:not([data-chart])').forEach(b => b.classList.toggle('active', b.dataset.range === String(rangeKey)));
     const arr = await fetchHistory(rangeKey);
     const ds = buildDatasets(arr);
     
-    // update mainChart
-    if(mainChart) {
-      mainChart.data.labels = ds.labels;
-      mainChart.data.datasets[0].data = ds.temp;
-      mainChart.data.datasets[1].data = ds.wtemp;
-      mainChart.data.datasets[2].data = ds.hum;
-      mainChart.update();
-    }
-
-    // small charts
-    if(chartTemp) {
-      chartTemp.data.labels = ds.labels;
-      chartTemp.data.datasets[0].data = ds.temp;
-      chartTemp.update();
-    }
-    if(chartWaterTemp) {
-      chartWaterTemp.data.labels = ds.labels;
-      chartWaterTemp.data.datasets[0].data = ds.wtemp;
-      chartWaterTemp.update();
-    }
-    if(chartHum) {
-      chartHum.data.labels = ds.labels;
-      chartHum.data.datasets[0].data = ds.hum;
-      chartHum.update();
-    }
+    // update mainChart only
+    updateMainChart(arr);
 
     // table preview (take last 20)
     const tbody = document.querySelector('#historyTable tbody');
@@ -448,6 +578,189 @@ async function loadRange(rangeKey){
   }
 }
 
+/* Update individual chart based on its own controls */
+async function updateIndividualChart(chartName) {
+  try {
+    const rangeBtn = document.querySelector(`button[data-range][data-chart="${chartName}"].active`);
+    const range = rangeBtn?.dataset.range || 'all';
+    
+    // Temporarily set current range for date formatting
+    const prevRange = currentRange;
+    currentRange = range;
+    
+    const arr = await fetchHistory(range);
+    
+    // Update the appropriate chart
+    if(chartName === 'suhu') updateSuhuChart(arr);
+    else if(chartName === 'suhuAir') updateSuhuAirChart(arr);
+    else if(chartName === 'kelembapan') updateKelembapanChart(arr);
+    else if(chartName === 'tds') updateTDSChart(arr);
+    
+    // Restore main chart range
+    currentRange = prevRange;
+  } catch(e) {
+    console.error('updateIndividualChart error:', e);
+  }
+}
+
+/* Generic function to aggregate data by day/week/month */
+function aggregateData(data, period) {
+  const grouped = {};
+  
+  data.forEach(d => {
+    let key;
+    if(period === 'day') {
+      key = d.timestamp.toISOString().split('T')[0]; // YYYY-MM-DD
+    } else if(period === 'week') {
+      const weekStart = new Date(d.timestamp);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week
+      key = weekStart.toISOString().split('T')[0];
+    } else if(period === 'month') {
+      key = d.timestamp.toISOString().slice(0, 7); // YYYY-MM
+    }
+    
+    if(!grouped[key]) {
+      grouped[key] = [];
+    }
+    grouped[key].push(d.value);
+  });
+  
+  const labels = [];
+  const values = [];
+  
+  Object.keys(grouped).sort().forEach(key => {
+    const vals = grouped[key];
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    labels.push(formatAggregatedLabel(key, period));
+    values.push(Math.round(mean * 10) / 10); // Round to 1 decimal
+  });
+  
+  return { labels, values };
+}
+
+/* Generic function to process chart data based on view mode */
+function processChartData(arr, chart, chartName, dataExtractor, colors) {
+  if(!chart || !arr || arr.length === 0) return;
+  
+  const activeBtn = document.querySelector(`button[data-view][data-chart="${chartName}"].active`);
+  const mode = activeBtn?.dataset.view || 'raw';
+  const chartData = arr.map(r => ({
+    timestamp: new Date(r.timestamp || r.ts || r.time),
+    value: dataExtractor(r)
+  })).filter(d => !isNaN(d.value));
+  
+  if(chartData.length === 0) return;
+  
+  let labels = [];
+  let values = [];
+  let pointRadii = [];
+  let pointColors = [];
+  
+  if(mode === 'raw') {
+    labels = chartData.map(d => formatDateLabel(d.timestamp, currentRange));
+    values = chartData.map(d => d.value);
+  } else if(mode.startsWith('mean-')) {
+    const aggregated = aggregateData(chartData, mode.replace('mean-', ''));
+    labels = aggregated.labels;
+    values = aggregated.values;
+  } else if(mode === 'minmax') {
+    const maxVal = Math.max(...chartData.map(d => d.value));
+    const minVal = Math.min(...chartData.map(d => d.value));
+    labels = chartData.map(d => formatDateLabel(d.timestamp, currentRange));
+    values = chartData.map(d => d.value);
+    
+    // Highlight min/max points
+    pointRadii = values.map(v => {
+      if(v === maxVal || v === minVal) return 6;
+      return 2;
+    });
+    pointColors = values.map(v => {
+      if(v === maxVal) return colors.max; // red for max
+      if(v === minVal) return colors.min; // blue for min
+      return colors.faded; // faded for others
+    });
+  }
+  
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = values;
+  
+  if(mode === 'minmax') {
+    chart.data.datasets[0].pointRadius = pointRadii;
+    chart.data.datasets[0].pointBackgroundColor = pointColors;
+    chart.data.datasets[0].pointBorderColor = pointColors;
+    chart.data.datasets[0].borderColor = colors.faded;
+    chart.data.datasets[0].backgroundColor = colors.fadedBg;
+  } else {
+    chart.data.datasets[0].pointRadius = 3;
+    chart.data.datasets[0].pointBackgroundColor = colors.normal;
+    chart.data.datasets[0].pointBorderColor = colors.normal;
+    chart.data.datasets[0].borderColor = colors.normal;
+    chart.data.datasets[0].backgroundColor = colors.normalBg;
+  }
+  
+  chart.update();
+}
+
+/* Process Suhu data based on view mode */
+function updateSuhuChart(arr) {
+  processChartData(arr, chartTemp, 'suhu', 
+    (r) => Number(r.suhu ?? r.temperature ?? null),
+    {
+      normal: 'rgba(255,99,132,1)',
+      normalBg: 'rgba(255,99,132,0.1)',
+      max: '#ef4444',
+      min: '#3b82f6',
+      faded: 'rgba(255,99,132,0.3)',
+      fadedBg: 'rgba(255,99,132,0.05)'
+    }
+  );
+}
+
+/* Process Suhu Air data based on view mode */
+function updateSuhuAirChart(arr) {
+  processChartData(arr, chartWaterTemp, 'suhuAir',
+    (r) => Number(r.suhu_air ?? r.water_temp ?? null),
+    {
+      normal: 'rgba(54,162,235,1)',
+      normalBg: 'rgba(54,162,235,0.1)',
+      max: '#ef4444',
+      min: '#3b82f6',
+      faded: 'rgba(54,162,235,0.3)',
+      fadedBg: 'rgba(54,162,235,0.05)'
+    }
+  );
+}
+
+/* Process Kelembapan data based on view mode */
+function updateKelembapanChart(arr) {
+  processChartData(arr, chartHum, 'kelembapan',
+    (r) => Number(r.kelembapan ?? r.humidity ?? null),
+    {
+      normal: 'rgba(75,192,192,1)',
+      normalBg: 'rgba(75,192,192,0.1)',
+      max: '#ef4444',
+      min: '#3b82f6',
+      faded: 'rgba(75,192,192,0.3)',
+      fadedBg: 'rgba(75,192,192,0.05)'
+    }
+  );
+}
+
+/* Process TDS data based on view mode */
+function updateTDSChart(arr) {
+  processChartData(arr, chartTDS, 'tds',
+    (r) => Number(r.tds ?? r.ec ?? r.ppm ?? null),
+    {
+      normal: '#8b5cf6',
+      normalBg: 'rgba(139,92,246,0.1)',
+      max: '#ef4444',
+      min: '#3b82f6',
+      faded: 'rgba(139,92,246,0.3)',
+      fadedBg: 'rgba(139,92,246,0.05)'
+    }
+  );
+}
+
 /* wire controls */
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -457,14 +770,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     // set interval for latest
     setInterval(fetchLatest, 5000);
 
-    // load default range (all)
+    // load default range (all) for main chart
     await loadRange('all');
+    
+    // Initialize small charts independently
+    await updateIndividualChart('suhu');
+    await updateIndividualChart('suhuAir');
+    await updateIndividualChart('kelembapan');
+    await updateIndividualChart('tds');
 
-    // range buttons
-    document.querySelectorAll('.controls .btn').forEach(btn => {
+    // range buttons for main chart
+    document.querySelectorAll('.controls .btn[data-range]:not([data-chart])').forEach(btn => {
       btn.addEventListener('click', async () => {
         const r = btn.dataset.range;
         await loadRange(r);
+      });
+    });
+    
+    // view mode buttons for main chart
+    document.querySelectorAll('button[data-view][data-chart="main"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        document.querySelectorAll('button[data-view][data-chart="main"]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const arr = await fetchHistory(currentRange);
+        updateMainChart(arr);
       });
     });
   } catch(e) {
@@ -489,6 +818,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       mainChart.update();
     });
   }
+  
+  // Individual chart range buttons
+  document.querySelectorAll('button[data-range][data-chart]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const chartName = btn.dataset.chart;
+      document.querySelectorAll(`button[data-range][data-chart="${chartName}"]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      await updateIndividualChart(chartName);
+    });
+  });
+  
+  // Individual chart view mode toggle buttons
+  document.querySelectorAll('button[data-view][data-chart]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const chartName = btn.dataset.chart;
+      document.querySelectorAll(`button[data-view][data-chart="${chartName}"]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      await updateIndividualChart(chartName);
+    });
+  });
 });
 </script>
 <script>
