@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Terverifikasi - HydrOnion</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .verify-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .verify-card {
+      background: white;
+      padding: 40px;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+      text-align: center;
+      max-width: 500px;
+    }
+    .verify-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+    .verify-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #10b981;
+    }
+    .verify-message {
+      font-size: 16px;
+      color: #6b7280;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .verify-btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #3b82f6;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .verify-btn:hover {
+      background: #2563eb;
+    }
+    .error-title {
+      color: #ef4444;
+    }
+  </style>
+</head>
+<body>
+  <div class="verify-container">
+    <div class="verify-card">
+      <div class="verify-icon" id="icon">✅</div>
+      <h1 class="verify-title" id="title">Loading...</h1>
+      <p class="verify-message" id="message">Memproses verifikasi email Anda...</p>
+      <a href="/" class="verify-btn" id="homeBtn" style="display:none">Kembali ke Dashboard</a>
+    </div>
+  </div>
+
+  <script>
+    // Get token from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (!token) {
+      showError('Token verifikasi tidak ditemukan');
+    } else {
+      // Call verification endpoint
+      fetch(`/verify_email?token=${token}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.message && data.message.includes('berhasil')) {
+            showSuccess(data.message, data.username);
+          } else {
+            showError(data.message || 'Verifikasi gagal');
+          }
+        })
+        .catch(error => {
+          showError('Tidak dapat terhubung ke server');
+          console.error('Verification error:', error);
+        });
+    }
+
+    function showSuccess(message, username) {
+      document.getElementById('icon').textContent = '✅';
+      document.getElementById('title').textContent = 'Email Terverifikasi!';
+      document.getElementById('title').className = 'verify-title';
+      document.getElementById('message').textContent = message + (username ? ` (${username})` : '');
+      document.getElementById('homeBtn').style.display = 'inline-block';
+    }
+
+    function showError(message) {
+      document.getElementById('icon').textContent = '❌';
+      document.getElementById('title').textContent = 'Verifikasi Gagal';
+      document.getElementById('title').className = 'verify-title error-title';
+      document.getElementById('message').textContent = message;
+      document.getElementById('homeBtn').style.display = 'inline-block';
+    }
+  </script>
+</body>
+</html>

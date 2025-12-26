@@ -983,6 +983,53 @@ Tim HydrOnion"""
         return jsonify({"message": "Gagal mengirim email verifikasi"}), 500
 
 
+@app.route("/admin/hash_passwords", methods=["POST"])
+def admin_hash_passwords():
+    """Admin endpoint to hash plain text passwords for users ID 1-4"""
+    try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get users 1-4
+        cursor.execute("SELECT id, username, password FROM users WHERE id BETWEEN 1 AND 4")
+        users = cursor.fetchall()
+        
+        updated = []
+        skipped = []
+        
+        for user in users:
+            password = user['password']
+            
+            # Check if already hashed
+            if password.startswith('pbkdf2:sha256:') or password.startswith('scrypt:'):
+                skipped.append(f"ID {user['id']} ({user['username']}) - already hashed")
+                continue
+            
+            # Hash the plain text password
+            hashed = generate_password_hash(password, method='pbkdf2:sha256')
+            
+            # Update in database
+            cursor.execute(
+                "UPDATE users SET password=%s WHERE id=%s",
+                (hashed, user['id'])
+            )
+            updated.append(f"ID {user['id']} ({user['username']}) - password hashed")
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        return jsonify({
+            "message": "Password hashing completed",
+            "updated": updated,
+            "skipped": skipped
+        })
+        
+    except Exception as e:
+        print(f"Error in admin_hash_passwords: {e}", file=sys.stderr)
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+
+
 # Remove the /ban_client endpoint
 
 # Define ngrok path and default port

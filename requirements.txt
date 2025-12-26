@@ -1,0 +1,7 @@
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-Mail==0.9.1
+mysql-connector-python==8.2.0
+paho-mqtt==1.6.1
+requests==2.31.0
+werkzeug==3.0.1

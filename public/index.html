@@ -14,6 +14,24 @@
     <div class="header">
       <div class="title">Dashboard Hidroponik</div>
       <div style="font-size:0.9rem;color:var(--muted)">Terakhir: <span id="lastUpdated">-</span></div>
+      
+      <!-- User Auth Section (Top Right) -->
+      <div id="authSection" style="margin-left:auto;display:flex;align-items:center;gap:12px">
+        <!-- When NOT logged in -->
+        <div id="guestButtons" style="display:flex;gap:8px">
+          <button onclick="showLoginModal()" style="padding:8px 16px;border:1px solid #ddd;background:white;border-radius:6px;cursor:pointer;font-weight:500">Login</button>
+          <button onclick="showRegisterModal()" style="padding:8px 16px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500">Register</button>
+        </div>
+        
+        <!-- When logged in -->
+        <div id="userInfo" style="display:none;align-items:center;gap:12px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:32px;height:32px;border-radius:50%;background:#3b82f6;color:white;display:flex;align-items:center;justify-content:center;font-weight:700" id="userAvatar">U</div>
+            <span style="font-weight:600" id="userName">User</span>
+          </div>
+          <button onclick="logout()" style="padding:6px 12px;border:1px solid #ddd;background:white;border-radius:6px;cursor:pointer;font-size:0.9rem">Logout</button>
+        </div>
+      </div>
     </div>
 
     <!-- top metrics -->
@@ -992,5 +1010,231 @@ fetch('https://iplocate.io/api/lookup')
   })
   .catch(error => console.error('Geolocation error:', error));
 </script>
+<script>
+// ========================================
+// User Authentication System
+// ========================================
+
+// Check if user is logged in on page load
+document.addEventListener('DOMContentLoaded', function() {
+  checkLoginStatus();
+});
+
+function checkLoginStatus() {
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  if (user && user.username) {
+    showUserInfo(user);
+  } else {
+    showGuestButtons();
+  }
+}
+
+function showUserInfo(user) {
+  document.getElementById('guestButtons').style.display = 'none';
+  document.getElementById('userInfo').style.display = 'flex';
+  document.getElementById('userName').textContent = user.username;
+  // Set avatar initial
+  const initial = user.username.charAt(0).toUpperCase();
+  document.getElementById('userAvatar').textContent = initial;
+}
+
+function showGuestButtons() {
+  document.getElementById('guestButtons').style.display = 'flex';
+  document.getElementById('userInfo').style.display = 'none';
+}
+
+function logout() {
+  if (confirm('Yakin ingin logout?')) {
+    localStorage.removeItem('user');
+    showGuestButtons();
+    alert('Berhasil logout!');
+  }
+}
+
+// ========================================
+// Modal Functions
+// ========================================
+
+function showLoginModal() {
+  const modal = document.getElementById('loginModal');
+  modal.style.display = 'flex';
+}
+
+function showRegisterModal() {
+  const modal = document.getElementById('registerModal');
+  modal.style.display = 'flex';
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  modal.style.display = 'none';
+  // Clear form
+  if (modalId === 'loginModal') {
+    document.getElementById('loginForm').reset();
+  } else if (modalId === 'registerModal') {
+    document.getElementById('registerForm').reset();
+  }
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+  const loginModal = document.getElementById('loginModal');
+  const registerModal = document.getElementById('registerModal');
+  if (event.target == loginModal) {
+    closeModal('loginModal');
+  } else if (event.target == registerModal) {
+    closeModal('registerModal');
+  }
+}
+
+// ========================================
+// Login Handler
+// ========================================
+
+async function handleLogin(event) {
+  event.preventDefault();
+  
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Memproses...';
+  
+  try {
+    const response = await fetch('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      // Save user data
+      localStorage.setItem('user', JSON.stringify(result));
+      showUserInfo(result);
+      closeModal('loginModal');
+      alert(result.message || 'Login berhasil!');
+    } else {
+      alert(result.message || 'Login gagal!');
+    }
+  } catch (error) {
+    alert('Error: Tidak dapat terhubung ke server');
+    console.error('Login error:', error);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+  }
+}
+
+// ========================================
+// Register Handler
+// ========================================
+
+async function handleRegister(event) {
+  event.preventDefault();
+  
+  const username = document.getElementById('registerUsername').value;
+  const email = document.getElementById('registerEmail').value;
+  const password = document.getElementById('registerPassword').value;
+  const confirmPassword = document.getElementById('registerConfirmPassword').value;
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  
+  // Validate passwords match
+  if (password !== confirmPassword) {
+    alert('Password tidak cocok!');
+    return;
+  }
+  
+  if (password.length < 6) {
+    alert('Password minimal 6 karakter!');
+    return;
+  }
+  
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Memproses...';
+  
+  try {
+    const response = await fetch('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password })
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      closeModal('registerModal');
+      alert(result.message || 'Registrasi berhasil! Silakan cek email Anda untuk verifikasi.');
+      showLoginModal();
+    } else {
+      alert(result.message || 'Registrasi gagal!');
+    }
+  } catch (error) {
+    alert('Error: Tidak dapat terhubung ke server');
+    console.error('Register error:', error);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+  }
+}
+</script>
+
+<!-- Login Modal -->
+<div id="loginModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('loginModal')">&times;</span>
+    <h2 style="margin-top:0">Login</h2>
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label for="loginUsername">Username</label>
+        <input type="text" id="loginUsername" required>
+      </div>
+      <div class="form-group">
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" required>
+      </div>
+      <button type="submit" class="btn-primary">Login</button>
+      <p style="text-align:center;margin-top:12px;font-size:0.9rem">
+        Belum punya akun? <a href="#" onclick="closeModal('loginModal'); showRegisterModal(); return false;" style="color:#3b82f6">Register</a>
+      </p>
+    </form>
+  </div>
+</div>
+
+<!-- Register Modal -->
+<div id="registerModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('registerModal')">&times;</span>
+    <h2 style="margin-top:0">Register</h2>
+    <form id="registerForm" onsubmit="handleRegister(event)">
+      <div class="form-group">
+        <label for="registerUsername">Username</label>
+        <input type="text" id="registerUsername" required minlength="3">
+      </div>
+      <div class="form-group">
+        <label for="registerEmail">Email</label>
+        <input type="email" id="registerEmail" required>
+        <small style="color:#666">Email akan digunakan untuk verifikasi akun</small>
+      </div>
+      <div class="form-group">
+        <label for="registerPassword">Password</label>
+        <input type="password" id="registerPassword" required minlength="6">
+      </div>
+      <div class="form-group">
+        <label for="registerConfirmPassword">Konfirmasi Password</label>
+        <input type="password" id="registerConfirmPassword" required minlength="6">
+      </div>
+      <button type="submit" class="btn-primary">Register</button>
+      <p style="text-align:center;margin-top:12px;font-size:0.9rem">
+        Sudah punya akun? <a href="#" onclick="closeModal('registerModal'); showLoginModal(); return false;" style="color:#3b82f6">Login</a>
+      </p>
+    </form>
+  </div>
+</div>
+
 </body>
 </html>
