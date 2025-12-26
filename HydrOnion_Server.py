@@ -10,6 +10,7 @@ import sys
 import os
 import time
 import requests
+import paho.mqtt.client as mqtt
 
 # ==============================
 # Utility Functions
@@ -138,6 +139,8 @@ sensor_data = {
 }
 
 DEFAULT_PORT = 5000
+MQTT_BROKER = os.environ.get('MQTT_BROKER', '192.168.1.10')
+MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
 
 
 # ==============================
@@ -343,6 +346,68 @@ def get_plant_rekomendasi():
         rows = execute_query("SELECT * FROM plant_rekomendasi ORDER BY id ASC", fetch=True)
         return jsonify({'status': 'success', 'data': rows})
     except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+def publish_mqtt(topic: str, payload: str, retain: bool = False) -> bool:
+    """Publish a short message to the MQTT broker and disconnect.
+    Returns True on success, False on failure."""
+    try:
+        client = mqtt.Client()
+        client.connect(MQTT_BROKER, MQTT_PORT, 5)
+        client.loop_start()
+        client.publish(topic, payload, retain=retain)
+        # give brief time for network IO
+        time.sleep(0.1)
+        client.loop_stop()
+        client.disconnect()
+        return True
+    except Exception as e:
+        print(f"MQTT publish error to {topic}: {e}", file=sys.stderr)
+        return False
+
+
+@app.route('/api/control/<device>', methods=['POST'])
+def api_control(device):
+    """Control endpoint to send MQTT commands to ESP32 devices.
+
+    Expects JSON body: { "state": 1 } or { "state": true }
+    Supported device values (frontend uses): 'lampu', 'pompa', 'humidifier'
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        state = data.get('state', None)
+        # Accept boolean or numeric values
+        if state is None:
+            return jsonify({'status': 'error', 'message': 'Missing state'}), 400
+
+        # Normalize to boolean
+        if isinstance(state, (int, float)):
+            is_on = bool(int(state))
+        elif isinstance(state, str):
+            is_on = state.lower() in ('1', 'true', 'on', 'yes')
+        else:
+            is_on = bool(state)
+
+        # Map device name to MQTT topic
+        mapping = {
+            'lampu': 'esp32/hydronion/control/lamp',
+            'pompa': 'esp32/hydronion/control/pump',
+            'humidifier': 'esp32/hydronion/control/humid',
+            'humid': 'esp32/hydronion/control/humid'
+        }
+        topic = mapping.get(device.lower())
+        if not topic:
+            return jsonify({'status': 'error', 'message': 'Unknown device'}), 400
+
+        payload = 'on' if is_on else 'off'
+        ok = publish_mqtt(topic, payload)
+        if not ok:
+            return jsonify({'status': 'error', 'message': 'Failed to publish MQTT'}), 500
+
+        return jsonify({'status': 'success', 'device': device, 'state': int(is_on)})
+    except Exception as e:
+        print('api_control error:', e, file=sys.stderr)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # -----------------------------
