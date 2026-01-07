@@ -489,20 +489,76 @@ def get_plant_rekomendasi():
 
 def publish_mqtt(topic: str, payload: str, retain: bool = False) -> bool:
     """Publish a short message to the MQTT broker and disconnect.
-    Returns True on success, False on failure."""
+    Returns tuple (success: bool, error_message: str).
+    """
     try:
         client = mqtt.Client()
         client.connect(MQTT_BROKER, MQTT_PORT, 5)
         client.loop_start()
-        client.publish(topic, payload, retain=retain)
+        (rc, mid) = client.publish(topic, payload, retain=retain)
         # give brief time for network IO
         time.sleep(0.1)
         client.loop_stop()
         client.disconnect()
-        return True
+        # rc == 0 indicates success for paho-mqtt publish
+        if rc == 0:
+            return True, ''
+        else:
+            return False, f'MQTT publish returned rc={rc}'
     except Exception as e:
-        print(f"MQTT publish error to {topic}: {e}", file=sys.stderr)
-        return False
+        import traceback
+        tb = traceback.format_exc()
+        print(f"MQTT publish error to {topic}: {e}\n{tb}", file=sys.stderr)
+        return False, str(e)
+
+
+def probe_mqtt_messages(topic_filter: str = 'esp32/hydronion/#', timeout: float = 3.0):
+    """Connect to MQTT broker, subscribe to `topic_filter` and collect messages for `timeout` seconds.
+    Returns tuple (success: bool, messages: list(dict), error_message: str).
+    Each message dict: { 'topic': str, 'payload': str, 'ts': ISO8601 }
+    """
+    messages = []
+    try:
+        found = {
+            'messages': messages
+        }
+
+        def on_message(client, userdata, msg):
+            try:
+                payload = msg.payload.decode('utf-8', errors='replace')
+            except Exception:
+                payload = str(msg.payload)
+            found['messages'].append({
+                'topic': msg.topic,
+                'payload': payload,
+                'ts': datetime.utcnow().isoformat() + 'Z'
+            })
+
+        client = mqtt.Client()
+        client.on_message = on_message
+        client.connect(MQTT_BROKER, MQTT_PORT, 5)
+        client.loop_start()
+        client.subscribe(topic_filter)
+
+        # wait up to timeout seconds or until at least one message received
+        start = time.time()
+        while time.time() - start < float(timeout):
+            if found['messages']:
+                break
+            time.sleep(0.1)
+
+        client.loop_stop()
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+
+        return True, found['messages'], ''
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"probe_mqtt_messages error: {e}\n{tb}", file=sys.stderr)
+        return False, [], str(e)
 
 
 @app.route('/api/control/<device>', methods=['POST'])
@@ -539,14 +595,40 @@ def api_control(device):
             return jsonify({'status': 'error', 'message': 'Unknown device'}), 400
 
         payload = 'on' if is_on else 'off'
-        ok = publish_mqtt(topic, payload)
+        ok, err = publish_mqtt(topic, payload)
         if not ok:
-            return jsonify({'status': 'error', 'message': 'Failed to publish MQTT'}), 500
+            msg = f'Failed to publish MQTT: {err}' if err else 'Failed to publish MQTT'
+            print(msg, file=sys.stderr)
+            return jsonify({'status': 'error', 'message': msg}), 500
 
         return jsonify({'status': 'success', 'device': device, 'state': int(is_on)})
     except Exception as e:
         print('api_control error:', e, file=sys.stderr)
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/check_esp', methods=['GET'])
+def api_check_esp():
+    """Quick diagnostic: subscribe to ESP32 topics and report any messages seen within timeout seconds.
+
+    Query params:
+    - topic: MQTT topic filter to subscribe (default: esp32/hydronion/#)
+    - timeout: seconds to wait (default: 3)
+    """
+    topic = request.args.get('topic', 'esp32/hydronion/#')
+    try:
+        timeout = float(request.args.get('timeout', '3'))
+    except Exception:
+        timeout = 3.0
+
+    ok, msgs, err = probe_mqtt_messages(topic_filter=topic, timeout=timeout)
+    if not ok:
+        return jsonify({'status': 'error', 'message': f'MQTT probe failed: {err}'}), 500
+
+    if not msgs:
+        return jsonify({'status': 'ok', 'message': 'No messages seen within timeout', 'messages': []})
+
+    return jsonify({'status': 'ok', 'message': f'{len(msgs)} message(s) seen', 'messages': msgs})
 
 # -----------------------------
 # Client identification / logging helpers

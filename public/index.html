@@ -7,6 +7,8 @@
   <link rel="icon" type="image/png" href="/WebIcon.png">
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- MQTT over WebSocket (MQTT.js) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -96,14 +98,14 @@
     <div class="card" style="margin-top:12px">
       <div style="font-weight:700;margin-bottom:12px">Kontrol Perangkat</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
-        <!-- Humidifier Toggle -->
+        <!-- Humidifier Toggle
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f9fafb;border-radius:8px">
           <span style="font-weight:600">Humidifier</span>
           <label class="toggle-switch">
             <input type="checkbox" id="toggleHumidifier">
             <span class="toggle-slider"></span>
           </label>
-        </div>
+        </div> -->
         
         <!-- Pompa Toggle -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f9fafb;border-radius:8px">
@@ -945,7 +947,13 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 <script>
 // Toggle Control Handlers
+// Flag to prevent recursive calls from MQTT updates
+let isUpdatingFromMQTT = false;
+
 async function toggleDevice(device, state) {
+  // Don't send command if this was triggered by MQTT update
+  if (isUpdatingFromMQTT) return;
+  
   try {
     const response = await fetch(`/api/control/${device}`, {
       method: 'POST',
@@ -1237,4 +1245,61 @@ async function handleRegister(event) {
 </div>
 
 </body>
+<script>
+// MQTT WebSocket client: subscribe to device state topics and keep toggle UI in sync
+(function(){
+  try {
+    const mqttUrl = 'wss://broker.hivemq.com:8884/mqtt';
+    const mqttClient = mqtt.connect(mqttUrl, { reconnectPeriod: 5000 });
+
+    function setToggleVisual(id, on) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      
+      // Set flag to prevent recursive calls
+      window.isUpdatingFromMQTT = true;
+      
+      if ('checked' in el) {
+        el.checked = !!on;
+      }
+      // update label if exists
+      const lbl = document.getElementById(id + 'Label');
+      if (lbl) lbl.innerText = on ? 'ON' : 'OFF';
+      el.setAttribute('data-state', on ? 'on' : 'off');
+      
+      // Reset flag after a short delay
+      setTimeout(() => {
+        window.isUpdatingFromMQTT = false;
+      }, 100);
+    }
+
+    mqttClient.on('connect', () => {
+      console.log('MQTT WS connected');
+      mqttClient.subscribe('esp32/hydronion/state/#', (err) => {
+        if (err) console.warn('MQTT subscribe failed', err);
+      });
+    });
+
+    mqttClient.on('message', (topic, message) => {
+      const payload = (message || '').toString().toLowerCase();
+      console.log('MQTT message received - Topic:', topic, 'Payload:', payload);
+      
+      if (topic.endsWith('/lamp')) {
+        console.log('Updating lamp toggle to:', payload);
+        setToggleVisual('toggleLampu', payload === 'on');
+      }
+      else if (topic.endsWith('/pump')) {
+        console.log('Updating pump toggle to:', payload);
+        setToggleVisual('togglePompa', payload === 'on');
+      }
+      else if (topic.endsWith('/humid')) {
+        console.log('Updating humidifier toggle to:', payload);
+        setToggleVisual('toggleHumidifier', payload === 'on');
+      }
+    });
+
+    mqttClient.on('error', (e) => console.warn('MQTT error', e));
+  } catch (e) { console.warn('MQTT init failed', e); }
+})();
+</script>
 </html>
