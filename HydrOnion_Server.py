@@ -15,6 +15,8 @@ import paho.mqtt.client as mqtt
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
 import uuid
+from pydantic import BaseModel, ValidationError
+import traceback
 
 # ==============================
 # Utility Functions
@@ -60,7 +62,6 @@ def execute_query(query, params=None, fetch=False):
 app = Flask(__name__)
 CORS(app)
 
-# Email Configuration (Gmail) - Optional, won't crash if not configured
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
@@ -77,6 +78,16 @@ except Exception as e:
     print(f"Email not configured: {e}", file=sys.stderr)
     mail = None
     EMAIL_ENABLED = False
+
+
+# Pydantic request models
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 # ==============================
 # Global Error Handlers
@@ -154,11 +165,8 @@ def ensure_users_table():
         CREATE TABLE IF NOT EXISTS `users` (
             `id` INT NOT NULL AUTO_INCREMENT,
             `username` VARCHAR(255) NOT NULL UNIQUE,
-            `email` VARCHAR(255) NOT NULL UNIQUE,
             `password` VARCHAR(255) NOT NULL,
             `role` VARCHAR(50) DEFAULT 'user',
-            `email_verified` TINYINT(1) DEFAULT 0,
-            `verification_token` VARCHAR(255) NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`)
         )
@@ -193,40 +201,11 @@ def migrate_users_table():
                 print(f"Expanding password column from {col_type} to VARCHAR(255)...")
                 cursor.execute("ALTER TABLE users MODIFY COLUMN password VARCHAR(255) NOT NULL")
                 db.commit()
-        
-        # Add email column if missing
-        if 'email' not in existing_columns:
-            print("Adding 'email' column to users table...")
-            cursor.execute("ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL AFTER username")
-            db.commit()
-        
-        # Add email_verified column if missing
-        if 'email_verified' not in existing_columns:
-            print("Adding 'email_verified' column to users table...")
-            cursor.execute("ALTER TABLE users ADD COLUMN email_verified TINYINT(1) DEFAULT 0 AFTER role")
-            db.commit()
-        
-        # Add verification_token column if missing
-        if 'verification_token' not in existing_columns:
-            print("Adding 'verification_token' column to users table...")
-            cursor.execute("ALTER TABLE users ADD COLUMN verification_token VARCHAR(255) NULL AFTER email_verified")
-            db.commit()
-        
         # Add created_at column if missing
         if 'created_at' not in existing_columns:
             print("Adding 'created_at' column to users table...")
             cursor.execute("ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             db.commit()
-        
-        # Make email unique if it exists but isn't unique yet
-        if 'email' in existing_columns:
-            try:
-                cursor.execute("ALTER TABLE users ADD UNIQUE KEY unique_email (email)")
-                db.commit()
-                print("Added unique constraint to email column")
-            except mysql.connector.Error as e:
-                if e.errno != 1061:  # 1061 = Duplicate key name
-                    print(f"Could not add unique constraint to email: {e}")
         
         cursor.close()
         db.close()
@@ -277,7 +256,7 @@ sensor_data = {
 }
 
 DEFAULT_PORT = 5000
-MQTT_BROKER = os.environ.get('MQTT_BROKER', '192.168.1.10')
+MQTT_BROKER = os.environ.get('MQTT_BROKER', 'broker.hivemq.com')
 MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
 
 
@@ -319,6 +298,25 @@ def receive_sensor_data():
     except Exception as e:
         print(f"receive_sensor_data error: {e}", file=sys.stderr)
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/sensor_data', methods=['GET'])
+def get_sensor_data():
+    """GET endpoint to retrieve the latest sensor data from the database."""
+    try:
+        # Fetch the latest row from sensor_data table
+        rows = execute_query(
+            "SELECT * FROM sensor_data ORDER BY timestamp DESC LIMIT 1", 
+            fetch=True
+        )
+        if rows and len(rows) > 0:
+            return jsonify({'status': 'success', 'sensor_data': rows[0]})
+        else:
+            # Return in-memory sensor_data if no DB rows exist
+            return jsonify({'status': 'ok', 'sensor_data': sensor_data})
+    except Exception as e:
+        print(f"get_sensor_data error: {e}", file=sys.stderr)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 # Serve the frontend index.html and other static assets from the `public` folder
@@ -630,6 +628,91 @@ def api_check_esp():
 
     return jsonify({'status': 'ok', 'message': f'{len(msgs)} message(s) seen', 'messages': msgs})
 
+
+# ==============================
+#  MQTT Subscriber: receive sensor messages from ESP32 and save to DB
+# ==============================
+MQTT_SUB_TOPICS = [
+    ('esp32/hydronion/dht/temp', 0),
+    ('esp32/hydronion/dht/hum', 0),
+    ('esp32/hydronion/ds18b20/temp', 0),
+    ('esp32/hydronion/tds/ppm', 0),
+]
+
+
+def mqtt_on_connect(client, userdata, flags, rc):
+    try:
+        print(f"Connected to MQTT broker (rc={rc})")
+        for t, q in MQTT_SUB_TOPICS:
+            client.subscribe(t, qos=q)
+            print(f"Subscribed to {t}")
+    except Exception as e:
+        print('mqtt_on_connect error:', e, file=sys.stderr)
+
+
+def mqtt_on_message(client, userdata, msg):
+    try:
+        topic = msg.topic
+        payload = msg.payload.decode('utf-8', errors='replace').strip()
+        # try parse numeric payloads
+        try:
+            val = float(payload)
+        except Exception:
+            val = None
+
+        # Update global sensor_data and insert a row when a relevant value arrives
+        updated = False
+        if topic.endswith('/dht/temp') and val is not None:
+            sensor_data['suhu'] = val
+            updated = True
+        elif topic.endswith('/dht/hum') and val is not None:
+            sensor_data['kelembapan'] = val
+            updated = True
+        elif topic.endswith('/ds18b20/temp') and val is not None:
+            sensor_data['suhu_air'] = val
+            updated = True
+        elif topic.endswith('/tds/ppm') and val is not None:
+            sensor_data['tds'] = val
+            updated = True
+
+        # If we've updated one of the main sensor fields, persist a snapshot to DB
+        if updated:
+            sensor_data['timestamp'] = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            try:
+                sql = """
+                    INSERT INTO sensor_data (suhu, kelembapan, tds, suhu_air, status, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """
+                execute_query(sql, (
+                    sensor_data.get('suhu'),
+                    sensor_data.get('kelembapan'),
+                    sensor_data.get('tds'),
+                    sensor_data.get('suhu_air'),
+                    sensor_data.get('status'),
+                    sensor_data.get('timestamp')
+                ))
+                print(f"Saved sensor snapshot from MQTT topic {topic}: {payload}")
+            except Exception as e:
+                print('Error saving MQTT sensor snapshot:', e, file=sys.stderr)
+
+    except Exception as e:
+        print('mqtt_on_message error:', e, file=sys.stderr)
+
+
+def start_mqtt_client():
+    try:
+        client = mqtt.Client()
+        client.on_connect = mqtt_on_connect
+        client.on_message = mqtt_on_message
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.loop_start()
+        print('Background MQTT client started')
+        return client
+    except Exception as e:
+        print('Failed to start background MQTT client:', e, file=sys.stderr)
+        return None
+
+
 # -----------------------------
 # Client identification / logging helpers
 # -----------------------------
@@ -769,17 +852,18 @@ def log_client_details(req):
 @app.route("/register", methods=["POST"])
 def register():
     try:
-        data = request.json
-        username = data.get("username")
-        email = data.get("email")
-        password = data.get("password")
+        # Accept JSON or form-encoded payloads (mobile clients often send form data)
+        data = request.get_json(silent=True)
+        if not data:
+            # fallback to form data
+            data = request.form.to_dict() if request.form else {}
+        try:
+            req = RegisterRequest(**data)
+        except ValidationError as ve:
+            return jsonify({"message": "Invalid input", "errors": ve.errors()}), 400
 
-        if not username or not email or not password:
-            return jsonify({"message": "Data tidak lengkap (username, email, password)"}), 400
-
-        # Validate email format
-        if '@' not in email or '.' not in email:
-            return jsonify({"message": "Format email tidak valid"}), 400
+        username = req.username
+        password = req.password
 
         db = get_db_connection()
         cursor = db.cursor(dictionary=True)
@@ -791,80 +875,24 @@ def register():
             db.close()
             return jsonify({"message": "Username sudah ada"}), 400
 
-        # Check if email exists
-        cursor.execute("SELECT id FROM users WHERE email=%s", (email,))
-        if cursor.fetchone():
-            cursor.close()
-            db.close()
-            return jsonify({"message": "Email sudah terdaftar"}), 400
-
         # Hash password securely
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-        
-        # Generate verification token
-        verification_token = str(uuid.uuid4())
 
-        # Insert user
+        # Insert user (no email/verification)
         cursor.execute(
-            """INSERT INTO users (username, email, password, role, email_verified, verification_token) 
-               VALUES (%s, %s, %s, %s, %s, %s)""",
-            (username, email, hashed_password, "user", 0, verification_token)
+            "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+            (username, hashed_password, "user")
         )
         db.commit()
         user_id = cursor.lastrowid
         cursor.close()
         db.close()
 
-        # Send verification email to user
-        try:
-            if EMAIL_ENABLED and mail:
-                verification_link = f"http://localhost:{DEFAULT_PORT}/verify_email?token={verification_token}"
-                msg = Message(
-                    subject="Verifikasi Email HydrOnion",
-                    recipients=[email],
-                    body=f"""Halo {username},
-
-Terima kasih telah mendaftar di HydrOnion!
-
-Silakan klik link berikut untuk verifikasi email Anda:
-{verification_link}
-
-Jika Anda tidak mendaftar, abaikan email ini.
-
-Salam,
-Tim HydrOnion"""
-                )
-                mail.send(msg)
-                print(f"Verification email sent to {email}")
-            else:
-                print(f"Email disabled - verification link: http://localhost:{DEFAULT_PORT}/verify_email?token={verification_token}")
-        except Exception as e:
-            print(f"Failed to send verification email: {e}", file=sys.stderr)
-
-        # Send notification to admin
-        try:
-            if EMAIL_ENABLED and mail:
-                admin_msg = Message(
-                    subject="Pendaftaran User Baru HydrOnion",
-                    recipients=["off19132@gmail.com"],
-                    body=f"""User baru telah mendaftar:
-
-Username: {username}
-Email: {email}
-User ID: {user_id}
-Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-Status: Menunggu verifikasi email"""
-                )
-                mail.send(admin_msg)
-        except Exception as e:
-            print(f"Failed to send admin notification: {e}", file=sys.stderr)
-
         return jsonify({
-            "message": "Registrasi berhasil! Silakan cek email Anda untuk verifikasi.",
+            "message": "Registrasi berhasil! Anda dapat langsung login.",
             "user_id": user_id
         })
-    
+
     except mysql.connector.Error as db_error:
         print(f"Database error in register: {db_error}", file=sys.stderr)
         return jsonify({"message": f"Database error: {str(db_error)}"}), 500
@@ -878,19 +906,24 @@ Status: Menunggu verifikasi email"""
 @app.route("/login", methods=["POST"])
 def login():
     try:
-        data = request.json
-        username = data.get("username")
-        password = data.get("password")
+        # Accept JSON or form-encoded payloads
+        data = request.get_json(silent=True)
+        if not data:
+            data = request.form.to_dict() if request.form else {}
+        try:
+            req = LoginRequest(**data)
+        except ValidationError as ve:
+            return jsonify({"message": "Invalid input", "errors": ve.errors()}), 400
 
-        if not username or not password:
-            return jsonify({"message": "Username dan password harus diisi"}), 400
+        username = req.username
+        password = req.password
 
         db = get_db_connection()
         cursor = db.cursor(dictionary=True)
 
         # Fetch user data including hashed password
         cursor.execute(
-            "SELECT id, username, email, password, role, email_verified FROM users WHERE username=%s",
+            "SELECT id, username, password, role FROM users WHERE username=%s",
             (username,)
         )
         user = cursor.fetchone()
@@ -905,18 +938,10 @@ def login():
         if not check_password_hash(user['password'], password):
             return jsonify({"message": "Username atau password salah"}), 401
 
-        # Check email verification
-        if not user['email_verified']:
-            return jsonify({
-                "message": "Email belum diverifikasi. Silakan cek email Anda.",
-                "email_verified": False
-            }), 403
-
         # Return user data without password
         return jsonify({
             "id": user['id'],
             "username": user['username'],
-            "email": user['email'],
             "role": user['role'],
             "message": "Login berhasil"
         })
@@ -933,136 +958,7 @@ def login():
 
 
 
-@app.route("/verify_email", methods=["GET"])
-def verify_email():
-    """Verify user email using token from the verification link."""
-    token = request.args.get('token')
-    
-    if not token:
-        return jsonify({"message": "Token verifikasi tidak ditemukan"}), 400
 
-    db = get_db_connection()
-    cursor = db.cursor(dictionary=True)
-
-    # Find user with this token
-    cursor.execute(
-        "SELECT id, username, email, email_verified FROM users WHERE verification_token=%s",
-        (token,)
-    )
-    user = cursor.fetchone()
-
-    if not user:
-        cursor.close()
-        db.close()
-        return jsonify({"message": "Token verifikasi tidak valid"}), 404
-
-    if user['email_verified']:
-        cursor.close()
-        db.close()
-        return jsonify({"message": "Email sudah diverifikasi sebelumnya"}), 200
-
-    # Update user as verified
-    cursor.execute(
-        "UPDATE users SET email_verified=1, verification_token=NULL WHERE id=%s",
-        (user['id'],)
-    )
-    db.commit()
-    cursor.close()
-    db.close()
-
-    # Send notification to admin about successful verification
-    try:
-        if EMAIL_ENABLED and mail:
-            admin_msg = Message(
-                subject="Email Terverifikasi - HydrOnion",
-                recipients=["off19132@gmail.com"],
-                body=f"""User telah memverifikasi email mereka:
-
-Username: {user['username']}
-Email: {user['email']}
-User ID: {user['id']}
-Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-User sekarang dapat login ke sistem."""
-            )
-            mail.send(admin_msg)
-    except Exception as e:
-        print(f"Failed to send admin verification notification: {e}", file=sys.stderr)
-
-    return jsonify({
-        "message": "Email berhasil diverifikasi! Anda sekarang bisa login.",
-        "username": user['username']
-    })
-
-
-@app.route("/resend_verification", methods=["POST"])
-def resend_verification():
-    """Resend verification email if user didn't receive it."""
-    data = request.json
-    email = data.get("email")
-    
-    if not email:
-        return jsonify({"message": "Email harus diisi"}), 400
-
-    db = get_db_connection()
-    cursor = db.cursor(dictionary=True)
-
-    cursor.execute(
-        "SELECT id, username, email, email_verified, verification_token FROM users WHERE email=%s",
-        (email,)
-    )
-    user = cursor.fetchone()
-
-    if not user:
-        cursor.close()
-        db.close()
-        return jsonify({"message": "Email tidak ditemukan"}), 404
-
-    if user['email_verified']:
-        cursor.close()
-        db.close()
-        return jsonify({"message": "Email sudah diverifikasi"}), 200
-
-    # Generate new token if needed
-    if not user['verification_token']:
-        new_token = str(uuid.uuid4())
-        cursor.execute(
-            "UPDATE users SET verification_token=%s WHERE id=%s",
-            (new_token, user['id'])
-        )
-        db.commit()
-        verification_token = new_token
-    else:
-        verification_token = user['verification_token']
-
-    cursor.close()
-    db.close()
-
-    # Send verification email
-    try:
-        if EMAIL_ENABLED and mail:
-            verification_link = f"http://localhost:{DEFAULT_PORT}/verify_email?token={verification_token}"
-            msg = Message(
-                subject="Verifikasi Email HydrOnion (Kirim Ulang)",
-                recipients=[email],
-                body=f"""Halo {user['username']},
-
-Berikut link verifikasi email Anda:
-{verification_link}
-
-Jika Anda tidak meminta email ini, abaikan pesan ini.
-
-Salam,
-Tim HydrOnion"""
-            )
-            mail.send(msg)
-            return jsonify({"message": "Email verifikasi telah dikirim ulang"})
-        else:
-            print(f"Email disabled - verification link: http://localhost:{DEFAULT_PORT}/verify_email?token={verification_token}")
-            return jsonify({"message": "Email sistem tidak aktif. Silakan hubungi administrator."})
-    except Exception as e:
-        print(f"Failed to resend verification email: {e}", file=sys.stderr)
-        return jsonify({"message": "Gagal mengirim email verifikasi"}), 500
 
 
 # Remove the /ban_client endpoint
@@ -1125,6 +1021,12 @@ if __name__ == '__main__':
         print(f"✅ Public URL (akses dari WiFi lain / internet): {ngrok_url}")
     else:
         print("❌ Ngrok gagal dijalankan! Pastikan ngrok terinstall & login pakai auth token.")
+
+    # Start background MQTT subscriber (if broker reachable)
+    try:
+        mqtt_bg_client = start_mqtt_client()
+    except Exception:
+        mqtt_bg_client = None
 
     # Run Flask
     app.run(host='0.0.0.0', port=DEFAULT_PORT, debug=True)
