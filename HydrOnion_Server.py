@@ -304,16 +304,34 @@ def receive_sensor_data():
 def get_sensor_data():
     """GET endpoint to retrieve the latest sensor data from the database."""
     try:
-        # Fetch the latest row from sensor_data table
-        rows = execute_query(
-            "SELECT * FROM sensor_data ORDER BY timestamp DESC LIMIT 1", 
-            fetch=True
-        )
+        # Support optional `limit` query parameter. Default: 1 (latest row).
+        # If limit > 1 the endpoint returns a list of rows (newest first).
+        limit = request.args.get('limit', None)
+        try:
+            limit_int = int(limit) if limit is not None else 1
+        except Exception:
+            limit_int = 1
+
+        # sanitize and cap the limit to avoid very large responses
+        if limit_int < 1:
+            limit_int = 1
+        if limit_int > 10000:
+            limit_int = 10000
+
+        q = f"SELECT * FROM sensor_data ORDER BY timestamp DESC LIMIT {limit_int}"
+        rows = execute_query(q, fetch=True)
         if rows and len(rows) > 0:
-            return jsonify({'status': 'success', 'sensor_data': rows[0]})
+            if limit_int == 1:
+                return jsonify({'status': 'success', 'sensor_data': rows[0]})
+            else:
+                return jsonify({'status': 'success', 'sensor_data': rows})
         else:
-            # Return in-memory sensor_data if no DB rows exist
-            return jsonify({'status': 'ok', 'sensor_data': sensor_data})
+            # No DB rows: return in-memory snapshot for single-row requests,
+            # or an empty list for multi-row requests.
+            if limit_int == 1:
+                return jsonify({'status': 'ok', 'sensor_data': sensor_data})
+            else:
+                return jsonify({'status': 'ok', 'sensor_data': []})
     except Exception as e:
         print(f"get_sensor_data error: {e}", file=sys.stderr)
         return jsonify({'status': 'error', 'message': str(e)}), 500
