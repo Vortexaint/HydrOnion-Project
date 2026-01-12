@@ -319,19 +319,16 @@ def get_sensor_data():
             limit_int = 10000
 
         q = f"SELECT * FROM sensor_data ORDER BY timestamp DESC LIMIT {limit_int}"
-        rows = execute_query(q, fetch=True)
-        if rows and len(rows) > 0:
-            if limit_int == 1:
-                return jsonify({'status': 'success', 'sensor_data': rows[0]})
+        rows = execute_query(q, fetch=True) or []
+        # Always return an array. For limit==1 return a single-element array.
+        if limit_int == 1:
+            if rows:
+                return jsonify([rows[0]])
             else:
-                return jsonify({'status': 'success', 'sensor_data': rows})
+                # Return in-memory snapshot wrapped in an array when DB empty
+                return jsonify([sensor_data])
         else:
-            # No DB rows: return in-memory snapshot for single-row requests,
-            # or an empty list for multi-row requests.
-            if limit_int == 1:
-                return jsonify({'status': 'ok', 'sensor_data': sensor_data})
-            else:
-                return jsonify({'status': 'ok', 'sensor_data': []})
+            return jsonify(rows)
     except Exception as e:
         print(f"get_sensor_data error: {e}", file=sys.stderr)
         return jsonify({'status': 'error', 'message': str(e)}), 500

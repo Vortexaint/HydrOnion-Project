@@ -41,6 +41,8 @@ DallasTemperature sensors(&oneWire);
 #define RELAY_ON_LEVEL HIGH
 
 unsigned long lastPublish = 0;
+// Publish interval (milliseconds). 108 seconds = 108000 ms
+const unsigned long PUBLISH_INTERVAL_MS = 108000UL;
 
 // Relay helpers
 bool readRelayState(int pin) {
@@ -263,7 +265,7 @@ void loop() {
   }
 
   unsigned long now = millis();
-  if (now - lastPublish > 5000) {
+  if (now - lastPublish > PUBLISH_INTERVAL_MS) {
     lastPublish = now;
 
     Serial.println("\n=== SENSOR READINGS ===");
