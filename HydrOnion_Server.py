@@ -332,7 +332,77 @@ def get_sensor_data():
     except Exception as e:
         print(f"get_sensor_data error: {e}", file=sys.stderr)
         return jsonify({'status': 'error', 'message': str(e)}), 500
+    
+@app.route("/users", methods=["GET"])
+def get_users():
+    db = get_db_connection()
+    cursor = db.cursor(dictionary=True)
 
+    cursor.execute("SELECT id, username, role FROM users")
+    users = cursor.fetchall()
+
+    cursor.close()
+    db.close()
+
+    return jsonify(users)
+
+@app.route("/users/<int:user_id>/username", methods=["PUT"])
+def update_username(user_id):
+    data = request.get_json()
+    new_username = data.get("username")
+
+    if not new_username:
+        return jsonify({
+            "status": "error",
+            "message": "Username tidak boleh kosong"
+        }), 400
+
+    db = get_db_connection()
+    cursor = db.cursor(dictionary=True)
+
+    # Cek username sudah dipakai atau belum
+    cursor.execute(
+        "SELECT id FROM users WHERE username = %s AND id != %s",
+        (new_username, user_id)
+    )
+    if cursor.fetchone():
+        cursor.close()
+        db.close()
+        return jsonify({
+            "status": "error",
+            "message": "Username sudah digunakan"
+        }), 400
+
+    # Update username
+    cursor.execute(
+        "UPDATE users SET username = %s WHERE id = %s",
+        (new_username, user_id)
+    )
+    db.commit()
+
+    cursor.close()
+    db.close()
+
+    return jsonify({
+        "status": "success",
+        "message": "Username berhasil diubah"
+    })
+
+@app.route("/users/<int:user_id>", methods=["DELETE"])
+def delete_user(user_id):
+    db = get_db_connection()
+    cursor = db.cursor()
+
+    cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    db.commit()
+
+    cursor.close()
+    db.close()
+
+    return jsonify({
+        "status": "success",
+        "message": "User berhasil dihapus"
+    })
 
 # Serve the frontend index.html and other static assets from the `public` folder
 @app.route('/')
